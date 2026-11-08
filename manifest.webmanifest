@@ -1,0 +1,10 @@
+{
+  "name": "Hexaverde — Eco City Tycoon",
+  "short_name": "Hexaverde",
+  "start_url": "./index.html",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#8cc8de",
+  "theme_color": "#2f6b3c",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
