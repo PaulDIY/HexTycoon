@@ -70,7 +70,19 @@ function openFlyout(c) {
   syncMenu(); syncPanelClass();
 }
 export function closeFlyout() { UI.cat = null; $('flyout').classList.add('hidden'); syncMenu(); syncPanelClass(); }
-function syncPanelClass() { document.body.classList.toggle('panel-open', !!UI.cat || !$('inspector').classList.contains('collapsed')); }
+function syncPanelClass() { document.body.classList.toggle('panel-open', !!UI.cat || !$('inspector').classList.contains('collapsed')); syncSheet(); }
+// lift the map controls / toasts above the bottom-sheet inspector only when they would overlap it
+export function syncSheet() {
+  const ins = $('inspector'), ctl = $('mapctl'), root = document.documentElement.style;
+  if (!ins || !ctl) return;
+  if (ins.classList.contains('collapsed')) { root.setProperty('--insp-h', '0px'); root.setProperty('--sheet-h', '0px'); return; }
+  root.setProperty('--sheet-h', Math.ceil(ins.offsetHeight + 6) + 'px');
+  const a = ins.getBoundingClientRect(), b = ctl.getBoundingClientRect();
+  const overlapX = b.left < a.left + a.width && b.right > a.left;
+  root.setProperty('--insp-h', overlapX ? Math.ceil(ins.offsetHeight + 6) + 'px' : '0px');
+}
+if (typeof ResizeObserver !== 'undefined') queueMicrotask(() => { const el = $('inspector'); if (el) new ResizeObserver(syncSheet).observe(el); });
+window.addEventListener('resize', () => syncSheet());
 const sameTool = (a, b) => a.kind === b.kind && a.zone === b.zone && a.level === b.level && a.type === b.type;
 
 function syncMenu() {

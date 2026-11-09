@@ -155,7 +155,7 @@ function findJob(truck, hub) {
     return s;
   };
   for (const b of Object.values(S.buildings)) {
-    if (b.type === 'hub' && b.built) continue;
+    if (b.type === 'hub' && b.built && !b.site) continue; // hubs only take goods while they are being upgraded
     const accHB = access(hub.id, b);
     if (!accHB) continue;
     // construction
@@ -240,8 +240,19 @@ export function cancelTrucksFor(bid) {
 }
 
 let dispatchT = 0;
+// a hub being upgraded uses materials it already stores (no truck trip needed)
+function selfSupply(hub) {
+  const s = hub.site;
+  for (const [g, n] of Object.entries(s.need)) {
+    const rem = n - (s.got[g] || 0) - (s.incoming[g] || 0);
+    const amt = Math.min(rem, Math.floor(avail(hub, g)));
+    if (amt > 0) { add(hub.inv, g, -amt); add(s.got, g, amt); }
+  }
+}
+
 export function tickLogistics(dt) {
   if (C.fieldsDirty) computeFields();
+  for (const b of Object.values(S.buildings)) if (b.type === 'hub' && b.built && b.site) selfSupply(b);
   dispatchT -= dt;
   if (dispatchT <= 0) {
     dispatchT = 0.4;

@@ -1,4 +1,4 @@
-// Right-side property inspector: selected building, tile, active tool or fleet overview.
+// Bottom-sheet property inspector: selected building, tile, active tool or fleet overview. Tap the header to minimise it.
 import { S, C, def, tileAt, hubTrucks } from './state.js';
 import { BUILDINGS, ZONES, GOODS, ROAD, TERRAIN, TRUCK, PRIORITIES, LEVEL_UNLOCK, ZONE_COST, NEED_RATE } from './config.js';
 import { V } from './render.js';
@@ -20,6 +20,7 @@ function bind(el) {
   if (bound === el) return;
   bound = el;
   el.addEventListener('click', (e) => {
+    if (e.target.closest('.insp-head')) { el.parentElement.classList.toggle('mini'); return; }
     const btn = e.target.closest('[data-act]'); if (!btn || btn.disabled) return;
     const act = btn.dataset.act, arg = btn.dataset.arg;
     const b = V.selected ? S.buildings[V.selected] : null;
@@ -73,7 +74,7 @@ function tool(UI) {
   if (t.kind === 'build') {
     const d = BUILDINGS[t.type];
     return `<div class="insp-head"><span class="ic">${d.icon}</span><div><h2>${d.names[0]}</h2><div class="sub">$${d.cost[0]}</div></div></div>
-      <p class="note">${d.desc}</p>${sec('Materials needed', `<div class="chips">${matsChips(d.mats[0])}</div>`)}
+      <p class="note desc">${d.desc}</p>${sec('Materials needed', `<div class="chips">${matsChips(d.mats[0])}</div>`)}
       ${t.type === 'park' ? sec('Effect', row('Radius', d.radius[0] + ' tiles') + row('Absorbs', d.strength[0] + ' pollution')) : ''}
       ${t.type === 'hub' ? sec('Capacity', row('Storage', d.cap[0]) + row('Truck slots', d.trucks[0])) : ''}
       <p class="note">☝️ Tap a free tile to place it.</p>`;
@@ -107,7 +108,7 @@ const STATUS = { ok: '✅ Working', full: '📦 Storage full — waiting for pic
 function building(b) {
   const d = def(b), L = b.level - 1;
   let h = `<div class="insp-head"><span class="ic">${d.icon}</span><div><h2>${d.names[L]}</h2>${stars(b.level)} <span class="sub">${b.built ? '' : 'under construction'}</span></div></div>`;
-  if (d.desc) h += `<p class="note">${d.desc}</p>`;
+  if (d.desc) h += `<p class="note desc">${d.desc}</p>`;
   if (!isConnected(b)) h += `<div class="warnbox">🚧 Not reachable by trucks. Connect it to a Storage Hub by road.</div>`;
   if (b.site) h += siteSec(b);
   if (b.built) {
@@ -130,9 +131,15 @@ function siteSec(b) {
   const chips = Object.entries(s.need).map(([g, n]) => { const got = s.got[g] || 0; return chip(g, `${fmt(got)}/${n}`, got < n ? 'miss' : ''); }).join(' ');
   const inc = Object.entries(s.incoming).filter(([, n]) => n > 0).map(([g, n]) => chip(g, '🚚 ' + fmt(n))).join(' ');
   const done = Object.entries(s.need).every(([g, n]) => (s.got[g] || 0) >= n);
+  // materials that nobody has in stock: tell the player which building makes them
+  const short = Object.entries(s.need).filter(([g, n]) => (s.got[g] || 0) + (s.incoming[g] || 0) < n
+    && !Object.values(S.buildings).some((x) => x !== b && x.built && (x.inv[g] || 0) >= 1 && (x.type === 'hub' || def(x).out === g || (def(x).recipe && def(x).recipe.out[g]))))
+    .map(([g]) => { const m = Object.values(BUILDINGS).find((d) => d.out === g || (d.recipe && d.recipe.out[g]));
+      return `${GOODS[g].icon} ${GOODS[g].name}${m ? ` → ${m.names[0]}` : ''}`; });
+  const shortBox = short.length ? `<div class="warnbox">None in stock:<br>${short.join('<br>')}</div>` : '';
   return sec(s.upgrade ? `Upgrading to level ${b.level + 1}` : 'Construction',
     `<div class="chips">${chips || '<span class="note">No materials needed</span>'}</div>${inc ? `<div class="chips" style="margin-top:4px">${inc}</div>` : ''}
-    ${done ? row('Building', Math.round(s.progress * 100) + '%') + bar(s.progress, 'gold') : '<p class="note">Waiting for trucks to deliver materials from a Storage Hub.</p>'}`);
+    ${done ? row('Building', Math.round(s.progress * 100) + '%') + bar(s.progress, 'gold') : '<p class="note">Waiting for trucks to deliver materials.</p>' + shortBox}`);
 }
 
 function houseSec(b, d, L) {
@@ -168,7 +175,7 @@ function hubSec(b, d, L) {
   const used = Object.values(b.inv).reduce((a, v) => a + v, 0);
   const trucks = hubTrucks(b.id);
   const ti = A.truckInfo(b);
-  const label = { con: '🏗️ delivering materials', sup: '🛒 supplying', col: '📥 collecting' };
+  const label = { con: '🏗️ building', sup: '🛒 supply', col: '📥 collect' };
   const tl = trucks.map((t, i) => `<div class="truck"><span class="dot ${t.steps ? 'busy' : ''}"></span>${TRUCK.names[L]} ${i + 1}<span class="note" style="margin:0 0 0 auto">${t.steps ? label[t.job] || 'busy' : 'idle'}</span></div>`).join('');
   return sec('Storage', row('Used', `${fmt(used)} / ${d.cap[L]}`) + bar(used / d.cap[L], used / d.cap[L] > 0.9 ? 'warn' : '')
       + `<div class="chips" style="margin-top:6px">${Object.entries(b.inv).filter(([, n]) => n >= 1).map(([g, n]) => chip(g, n)).join(' ') || '<span class="note">empty</span>'}</div>`

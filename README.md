@@ -54,7 +54,7 @@ Wood / Stone / Planks / Bricks → construction sites (via trucks)
 | `js/models.js` | Procedural sprite-stack models for every building and level, plus trees, hills and trucks |
 | `js/render.js` | Camera (pan/zoom/rotate), batched affine ground pass, depth-sorted sprites, overlays, smoke, status icons |
 | `js/input.js` | Pointer, touch and keyboard handling |
-| `js/ui.js`, `js/inspector.js` | Left build menu and flyouts, HUD, toasts, modals, and the right-hand property inspector |
+| `js/ui.js`, `js/inspector.js` | Left build menu and flyouts, HUD, toasts, modals, and the bottom-sheet property inspector (tap its header to minimise) |
 | `js/main.js` | Boot, fixed-step game loop, autosave (localStorage) |
 
 The simulation modules have no DOM access, so they run under Node for tests.
