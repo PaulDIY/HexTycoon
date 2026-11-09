@@ -26,7 +26,7 @@ node test/bot.test.js    # 400-day balance run with a bot player (env: SEED, DAY
 | 3. Logistics | Trucks collect output from producers, supply factories and stores, and deliver **directly** from producer to consumer when that's shorter. On a hub you can buy or sell trucks and set a priority (Balanced / Construction / Supply / Collection). |
 | 4. Grow | Citizens need food, then clothes (level 2), then furniture (level 3), all bought at stores within walking range. Happy citizens pay more tax. Companies pay tax on what they produce. |
 | 5. Upgrade | Everything has **3 levels**: houses, stores, farms, mines, factories, hubs (and their trucks), parks and roads. Level 2 unlocks at 40 citizens, level 3 at 200. |
-| 6. Stay green | The ☁️ button shows the pollution overlay. Parks and forests absorb pollution. Level-3 buildings and E-Trucks are close to emission-free. |
+| 6. Stay green | The ☁️ button in the header shows the pollution overlay. Parks and forests absorb pollution. Level-3 buildings and E-Trucks are close to emission-free. |
 
 **Controls.** On touch: with the Select tool, one finger pans. With zone, road or remove tools, one finger paints. Two fingers pan, pinch-zoom and rotate. On desktop: right-drag pans, the wheel zooms, Q/E rotates, WASD/arrows pan, Space pauses and Esc cancels.
 
