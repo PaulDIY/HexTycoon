@@ -57,7 +57,7 @@ export function generateMap(seed) {
       let terrain;
       if (e < 0.33) terrain = 'water';
       else if (e < 0.38) terrain = 'sand';
-      else if (e > 0.66) terrain = 'hills';
+      else if (e > 0.73) terrain = 'hills';
       else if (m > 0.56) terrain = 'forest';
       else if (m < 0.42 && e < 0.55) terrain = 'fertile';
       else terrain = 'grass';
