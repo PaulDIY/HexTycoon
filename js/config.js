@@ -1,7 +1,7 @@
 // Game data: terrain, goods, buildings (3 levels each), roads, trucks, goals.
 export const DAY = 12; // real seconds per game day at 1x speed
 export const TICK = 0.1; // simulation step (game seconds)
-export const MAP_RADIUS = 30;
+export const MAP_RADIUS = 20;
 export const START_MONEY = 2500;
 export const ZONE_COST = 2;
 export const LEVEL_UNLOCK = [0, 40, 200]; // population needed for level 1/2/3
@@ -83,6 +83,14 @@ export const ZONES = {
       "textile",
       "furniture",
     ],
+  },
+  harbor: {
+    name: "Harbor",
+    icon: "⚓",
+    color: "#2a9db5",
+    terrain: ["grass", "fertile", "sand", "forest"],
+    coastal: true, // tile must touch water
+    types: ["harbor"],
   },
 };
 
@@ -271,6 +279,21 @@ export const BUILDINGS = {
     needsRoad: true,
     desc: "Stores goods and runs your truck fleet. Must touch a road.",
   },
+  harbor: {
+    kind: "harbor",
+    zone: "harbor",
+    icon: "⚓",
+    names: ["Jetty", "Cargo Port", "Green Port"],
+    maxExport: [10, 25, 50], // units the player may sell per day
+    stock: [20, 50, 100], // warehouse size at the quay
+    price: [1.0, 1.15, 1.3], // export price = good value × price
+    workers: [3, 5, 8],
+    mats: MATS_M,
+    upCost: [0, 250, 600],
+    poll: [0.6, 0.5, 0.1],
+    unlock: 0,
+    desc: "Ships one good overseas. Choose the good and how much to sell per day.",
+  },
   park: {
     kind: "park",
     player: true,
@@ -298,7 +321,7 @@ export const ROAD = {
 export const TRUCK = {
   names: ["Van", "Truck", "E-Truck"],
   cap: [8, 14, 20],
-  speed: [1.6, 2.0, 2.4],
+  speed: [0.8, 1.0, 1.2],
   co2: [0.05, 0.03, 0],
   upkeep: [2, 3, 3],
 };

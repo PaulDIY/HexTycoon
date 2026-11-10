@@ -7,6 +7,7 @@ import { tileAt } from './state.js';
 import * as A from './actions.js';
 import { isUnlocked, computeStats } from './sim.js';
 import { renderInspector } from './inspector.js';
+import { renderStats, ST } from './stats.js';
 
 export const UI = { tool: { kind: 'select' }, cat: null, stroke: [], inspDirty: true, fleet: false };
 const $ = (id) => document.getElementById(id);
@@ -17,7 +18,7 @@ export { fmt };
 const CATS = [
   { id: 'select', ic: '👆', lb: 'Select', tool: { kind: 'select' } },
   { id: 'zones', ic: '🗺️', lb: 'Zones', items: () => [
-    ...Object.entries(ZONES).map(([z, d]) => ({ ic: d.icon, name: d.name, sub: `$${ZONE_COST}/tile · ${d.terrain.join(', ')}`, sw: d.color, tool: { kind: 'zone', zone: z, spec: 'auto' } })),
+    ...Object.entries(ZONES).map(([z, d]) => ({ ic: d.icon, name: d.name, sub: `$${ZONE_COST}/tile · ${d.coastal ? 'coast only' : d.terrain.join(', ')}`, sw: d.color, tool: { kind: 'zone', zone: z, spec: 'auto' } })),
     { ic: '🧽', name: 'Remove zone', sub: 'Clears zoning only', tool: { kind: 'unzone' } }] },
   { id: 'roads', ic: '🛣️', lb: 'Roads', items: () => ROAD.names.map((n, i) => ({
     ic: ['🟫', '⬛', '🟩'][i], name: n, sub: `$${ROAD.cost[i]}/tile · speed ×${ROAD.speed[i]}`, locked: LEVEL_UNLOCK[i] > S.maxPop,
@@ -54,6 +55,8 @@ export function initUI() {
   $('btn-menu').addEventListener('click', showMenu);
   $('btn-goal').addEventListener('click', showGoals);
   $('hud-money').addEventListener('click', showFinance);
+  $('goalbar').addEventListener('click', showGoals);
+  initStats();
   $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
   syncMenu();
 }
@@ -215,6 +218,8 @@ export function updateUI(dt) {
     bar('dR', st.demandR); bar('dC', st.demandC); bar('dI', st.demandI);
     const g = GOALS[S.goal];
     $('goalbar').textContent = g ? `🎯 ${g.text} · +$${g.reward}` : '';
+    // statistics window: redraw when a new day has been recorded
+    if (statsOpen && S.hist.length && S.hist[S.hist.length - 1].d !== statsDay) refreshStats();
   }
   if (inspT <= 0 || UI.inspDirty) {
     inspT = 0.35;
@@ -226,8 +231,49 @@ document.addEventListener('pointerdown', (e) => { if (e.target.closest && e.targ
 document.addEventListener('pointerup', () => { setTimeout(() => (insPointerDown = false), 0); }, true);
 
 // ---------- modals ----------
-export function showModal(html) { $('modal-card').innerHTML = html; $('modal').classList.remove('hidden'); }
-export function closeModal() { $('modal').classList.add('hidden'); }
+export function showModal(html) { statsOpen = false; $('modal-card').innerHTML = html; $('modal').classList.remove('hidden'); }
+export function closeModal() { statsOpen = false; $('modal').classList.add('hidden'); }
+
+// ---------- statistics ----------
+let statsOpen = false, statsDay = -1;
+export function showStats(tab) {
+  ST.tab = tab;
+  showModal(`<h1>Statistics</h1><div id="stats-body"></div><button class="btn" data-close>Close</button>`);
+  statsOpen = true;
+  refreshStats();
+}
+function refreshStats() {
+  const el = $('stats-body'); if (!el) return;
+  el.innerHTML = renderStats();
+  statsDay = S.hist.length ? S.hist[S.hist.length - 1].d : -1;
+}
+function initStats() {
+  $('btn-sres').addEventListener('click', () => showStats('res'));
+  $('btn-str').addEventListener('click', () => showStats('tr'));
+  $('btn-seco').addEventListener('click', () => showStats('eco'));
+  document.querySelector('.stat.eco').addEventListener('click', () => showStats('eco'));
+  const card = $('modal-card');
+  card.addEventListener('click', (e) => {
+    if (!statsOpen) return;
+    const t = e.target.closest('[data-stab],[data-sgood],[data-smetric]');
+    if (!t) return;
+    if (t.dataset.stab) ST.tab = t.dataset.stab;
+    else if (t.dataset.sgood) ST.good = t.dataset.sgood;
+    else { const [k, v] = t.dataset.smetric.split(':'); ST[k] = v; }
+    refreshStats();
+  });
+  // tap or hover a chart column to read its value in the caption
+  const read = (e) => {
+    const hit = e.target.closest && e.target.closest('.hit'); if (!hit) return;
+    const r = hit.closest('figure').querySelector('.read'); if (r) r.textContent = hit.dataset.read;
+  };
+  card.addEventListener('pointermove', read);
+  card.addEventListener('pointerdown', read);
+  card.addEventListener('pointerout', (e) => {
+    const f = e.target.closest && e.target.closest('figure.chart');
+    if (f && e.pointerType === 'mouse' && !f.contains(e.relatedTarget)) { const r = f.querySelector('.read'); r.textContent = r.dataset.default; }
+  });
+}
 
 export const HELP = `
 <h1>🌿 Hexaverde</h1>
@@ -246,6 +292,7 @@ export const HELP = `
 function showMenu() {
   showModal(`<h1>Menu</h1>
     <button class="btn" data-close>▶ Resume</button>
+    <button class="btn sec2" id="m-goals">🎯 Goals</button>
     <button class="btn sec2" id="m-save">💾 Save now</button>
     <button class="btn sec2" id="m-help">❓ How to play</button>
     <button class="btn sec2" id="m-full">⛶ Fullscreen</button>
@@ -253,6 +300,7 @@ function showMenu() {
     <p class="note">The game autosaves in this browser every 20 seconds.</p>`);
   $('m-save').onclick = () => { window.dispatchEvent(new Event('hv-save')); toast('💾 Saved'); closeModal(); };
   $('m-help').onclick = () => showModal(HELP);
+  $('m-goals').onclick = showGoals;
   $('m-full').onclick = () => { const d = document.documentElement; (d.requestFullscreen || d.webkitRequestFullscreen || (() => toast('Fullscreen not supported', 'err'))).call(d); closeModal(); };
   $('m-new').onclick = () => {
     showModal(`<h1>Start a new game?</h1><p>Your current city will be replaced.</p>

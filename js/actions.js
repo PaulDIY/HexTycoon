@@ -1,5 +1,5 @@
 // Player actions with validation. Each returns { ok, msg }.
-import { S, C, tileAt, roadNeighbors, def, createBuilding, makeSite, addTruck, hubTrucks, emit } from './state.js';
+import { S, C, tileAt, neighbors, roadNeighbors, def, createBuilding, makeSite, addTruck, hubTrucks, emit } from './state.js';
 import { BUILDINGS, ZONES, ROAD, ZONE_COST, LEVEL_UNLOCK } from './config.js';
 import { cancelTrucksFor, cancelTruck, activeHubs } from './logistics.js';
 import { spend, pay, levelUnlocked, isUnlocked, computeStats } from './sim.js';
@@ -13,10 +13,12 @@ export function canZone(t, zone) {
   if (t.b) return fail('Occupied');
   if (t.road) return fail('Road here');
   if (!ZONES[zone].terrain.includes(t.terrain)) return fail(`${ZONES[zone].name} needs ${ZONES[zone].terrain.join(' / ')}`);
+  if (ZONES[zone].coastal && !isCoastal(t)) return fail(`${ZONES[zone].name} must touch water`);
   if (t.zone === zone) return fail('Already zoned');
   if (S.money < ZONE_COST) return fail('Not enough money');
   return OK;
 }
+export const isCoastal = (t) => t.terrain !== 'water' && neighbors(t).some((n) => n.terrain === 'water');
 export function zoneTile(t, zone, spec) {
   const c = canZone(t, zone);
   if (!c.ok) {
@@ -143,3 +145,11 @@ export function demolish(t) {
 }
 
 export function setPriority(hub, p) { hub.priority = p; }
+
+// harbor: which good to ship and how many units per day
+export function setExport(b, g, amt) {
+  const d = def(b), max = d.maxExport[b.level - 1];
+  if (g !== undefined) b.exp.g = g;
+  if (amt !== undefined) b.exp.amt = Math.max(0, Math.min(max, Math.round(amt)));
+  return OK;
+}

@@ -1,10 +1,11 @@
 // Economy simulation: construction, production, citizens, stores, taxes, growth, pollution, goals.
-import { S, C, tileAt, neighbors, roadNeighbors, def, createBuilding, emit, hubTrucks } from './state.js';
+import { S, C, tileAt, neighbors, roadNeighbors, def, createBuilding, emit, hubTrucks, newDayCounters } from './state.js';
 import { DAY, BUILDINGS, ZONES, GOODS, NEED_RATE, COMPANY_TAX, SALES_TAX, ROAD, TRUCK, LEVEL_UNLOCK, UNLOCK_MESSAGES, GOALS } from './config.js';
 import { hexDist, key, hash2 } from './hex.js';
 import { tickLogistics, activeHubs, isConnected } from './logistics.js';
 
 const add = (o, g, n) => { o[g] = (o[g] || 0) + n; if (Math.abs(o[g]) < 1e-6) delete o[g]; };
+const count = (o, g, n = 1) => { o[g] = (o[g] || 0) + n; }; // statistics counters
 const pay = (n) => { S.money += n; S.ledger.income += n; };
 const spend = (n) => { S.money -= n; S.ledger.expense += n; };
 
@@ -46,6 +47,7 @@ export function computeStats() {
 function computePollution() {
   const poll = new Map();
   let total = S.co2 * 0.5, green = 6;
+  const src = { Trucks: S.co2 * 0.5 }, sink = { Nature: 6, Forests: 0, Parks: 0 };
   const addP = (q, r, v, rad) => {
     for (let dq = -rad; dq <= rad; dq++) for (let dr = Math.max(-rad, -dq - rad); dr <= Math.min(rad, -dq + rad); dr++) {
       const d = hexDist(0, 0, dq, dr), k = key(q + dq, r + dr);
@@ -56,12 +58,18 @@ function computePollution() {
   for (const b of Object.values(S.buildings)) {
     if (!b.built) continue;
     const d = def(b), p = d.poll[b.level - 1];
-    if (p > 0) { total += p; addP(b.q, b.r, p, 2); }
-    if (d.kind === 'park') { const st = d.strength[b.level - 1]; green += st * 2; addP(b.q, b.r, -st, d.radius[b.level - 1]); }
+    if (p > 0) { total += p; addP(b.q, b.r, p, 2); count(src, pollCategory(d), p); }
+    if (d.kind === 'park') { const st = d.strength[b.level - 1]; green += st * 2; sink.Parks += st * 2; addP(b.q, b.r, -st, d.radius[b.level - 1]); }
   }
-  for (const t of S.tiles) if (t.terrain === 'forest') { green += 0.08; }
-  C.poll = poll;
+  for (const t of S.tiles) if (t.terrain === 'forest') { green += 0.08; sink.Forests += 0.08; }
+  C.poll = poll; C.pollSrc = src; C.pollSink = sink; C.pollTotal = total;
   C.eco = Math.max(0, Math.min(100, Math.round(100 * green / (green + total))));
+}
+
+export function pollCategory(d) {
+  if (d.kind === 'producer') return { agri: 'Farms', forest: 'Forestry', mine: 'Mining' }[d.zone] || 'Other';
+  if (d.kind === 'processor') return 'Industry';
+  return { house: 'Homes', store: 'Shops', hub: 'Storage hubs', harbor: 'Harbors' }[d.kind] || 'Other';
 }
 
 function storesInRange(h) {
@@ -106,7 +114,7 @@ function tickProducer(b, d, dt) {
   b.status = 'ok';
   b.progress += d.rate[L] * efficiency(b) * dt / DAY;
   while (b.progress >= 1) {
-    b.progress -= 1; add(b.inv, d.out, 1);
+    b.progress -= 1; add(b.inv, d.out, 1); count(C.day.prod, d.out);
     pay(GOODS[d.out].value * COMPANY_TAX);
   }
 }
@@ -121,8 +129,8 @@ function tickProcessor(b, d, dt) {
   b.progress += d.rate[L] * efficiency(b) * dt / DAY;
   if (b.progress >= 1) {
     b.progress -= 1;
-    for (const [g, n] of Object.entries(d.recipe.in)) add(b.inv, g, -n);
-    for (const [g, n] of Object.entries(d.recipe.out)) { add(b.inv, g, n); pay(GOODS[g].value * n * COMPANY_TAX); }
+    for (const [g, n] of Object.entries(d.recipe.in)) { add(b.inv, g, -n); count(C.day.use, g, n); }
+    for (const [g, n] of Object.entries(d.recipe.out)) { add(b.inv, g, n); count(C.day.prod, g, n); pay(GOODS[g].value * n * COMPANY_TAX); }
     if (Math.random() < 0.5) emit('smoke', { b: b.id });
   }
 }
@@ -139,7 +147,7 @@ function tickHouse(b, d, dt) {
         if (!s.built && !s.site) continue;
         if ((s.inv[g] || 0) >= 1 && (!best || s.inv[g] > best.inv[g])) best = s;
       }
-      if (best) { add(best.inv, g, -1); pay(GOODS[g].value * SALES_TAX); b.sat[g] = b.sat[g] * 0.75 + 0.25; }
+      if (best) { add(best.inv, g, -1); count(C.day.use, g); pay(GOODS[g].value * SALES_TAX); b.sat[g] = b.sat[g] * 0.75 + 0.25; }
       else b.sat[g] *= 0.75;
     }
   }
@@ -157,6 +165,23 @@ function tickHouse(b, d, dt) {
     else if (b.happy < 25 && b.residents > 1 && Math.random() < 0.5) b.residents--;
     if (b.residents > d.cap[L]) b.residents = d.cap[L];
   }
+}
+
+// Harbor: ships the chosen good at the chosen rate. Stock of a previously chosen good is shipped first.
+function tickHarbor(b, d, dt) {
+  const L = b.level - 1, e = b.exp;
+  const g = Object.keys(b.inv).find((x) => x !== e.g && b.inv[x] >= 1) || e.g;
+  if (!g || !e.amt) { b.status = 'idle'; return; }
+  if ((b.inv[g] || 0) < 1) { b.status = 'noinput'; return; }
+  b.status = 'ok';
+  b.progress += e.amt * efficiency(b) * dt / DAY;
+  while (b.progress >= 1 && (b.inv[g] || 0) >= 1) {
+    b.progress -= 1; add(b.inv, g, -1);
+    const v = GOODS[g].value * d.price[L];
+    pay(v); b.sold = (b.sold || 0) + v;
+    count(C.day.exp, g); C.day.expIncome += v;
+  }
+  if (b.progress > 1) b.progress = 1;
 }
 
 // ---------- zone growth ----------
@@ -194,7 +219,7 @@ function chooseType(zone, tile) {
 function tryGrow() {
   const st = C.stats;
   if (st.sites >= 3 + activeHubs().length * 2) return;
-  const demand = { res: st.demandR, com: st.demandC, agri: st.demandI, forest: st.demandI, mine: st.demandI, ind: st.demandI };
+  const demand = { res: st.demandR, com: st.demandC, agri: st.demandI, forest: st.demandI, mine: st.demandI, ind: st.demandI, harbor: 1 };
   const order = Object.keys(ZONES).sort(() => Math.random() - 0.5);
   for (const zone of order) {
     if (demand[zone] <= 0) continue;
@@ -223,6 +248,7 @@ export function tick(dt) {
     if (d.kind === 'producer') tickProducer(b, d, dt);
     else if (d.kind === 'processor') tickProcessor(b, d, dt);
     else if (d.kind === 'house') tickHouse(b, d, dt);
+    else if (d.kind === 'harbor') tickHarbor(b, d, dt);
   }
   tickLogistics(dt);
   spend(C.stats.upkeep * dt / DAY);
@@ -231,6 +257,7 @@ export function tick(dt) {
     slowT = 0;
     computeStats(); computePollution();
     S.co2 *= 0.97;
+    if (S.trucks.length) { C.day.busy += S.trucks.filter((t) => t.steps).length / S.trucks.length; C.day.samples++; }
     const p = C.stats.pop;
     if (p > S.maxPop) {
       const old = S.maxPop; S.maxPop = p;
@@ -241,9 +268,28 @@ export function tick(dt) {
   if (growT >= DAY * 0.4) { growT = 0; tryGrow(); }
   const day = Math.floor(S.time / DAY);
   if (day !== S.ledger.day) {
+    closeDay(S.ledger.day);
     S.ledger.lastIncome = S.ledger.income; S.ledger.lastExpense = S.ledger.expense;
     S.ledger.income = 0; S.ledger.expense = 0; S.ledger.day = day;
   }
+}
+
+// roll the day's counters into a history snapshot (last 60 days are kept and saved)
+const HIST_DAYS = 60;
+function closeDay(d) {
+  const c = C.day, stock = {};
+  for (const b of Object.values(S.buildings)) for (const [g, n] of Object.entries(b.inv)) stock[g] = (stock[g] || 0) + n;
+  for (const g in stock) stock[g] = Math.round(stock[g]);
+  if (!S.hist) S.hist = [];
+  S.hist.push({
+    d, prod: c.prod, use: c.use, exp: c.exp, expIncome: Math.round(c.expIncome), stock,
+    trips: c.trips, moved: Math.round(c.moved), dist: Math.round(c.dist), co2: +c.co2.toFixed(2),
+    busy: c.samples ? +(c.busy / c.samples).toFixed(3) : 0, trucks: S.trucks.length,
+    eco: C.eco ?? 100, poll: +(C.pollTotal || 0).toFixed(2), pop: C.stats ? C.stats.pop : 0,
+    income: Math.round(S.ledger.income), expense: Math.round(S.ledger.expense),
+  });
+  if (S.hist.length > HIST_DAYS) S.hist.splice(0, S.hist.length - HIST_DAYS);
+  C.day = newDayCounters();
 }
 
 function checkGoals() {

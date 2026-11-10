@@ -35,6 +35,8 @@ function bind(el) {
     else if (act === 'buytruck' && b) r = A.buyTruck(b);
     else if (act === 'selltruck' && b) r = A.sellTruck(b);
     else if (act === 'prio' && b) A.setPriority(b, arg);
+    else if (act === 'expgood' && b) A.setExport(b, arg);
+    else if (act === 'expamt' && b) A.setExport(b, undefined, b.exp.amt + +arg);
     else if (act === 'spec') uiRef.tool = { ...uiRef.tool, spec: arg };
     else if (act === 'tilespec') { const t = V.selTile; if (t) { t.spec = arg; } }
     else if (act === 'gohub') { V.selected = arg; uiRef.fleet = false; }
@@ -68,7 +70,7 @@ function tool(UI) {
     const z = ZONES[t.zone];
     const opts = z.types.length > 1 ? `<div class="seg">${specBtn('spec', 'auto', t.spec === 'auto', true, 'Auto')}${z.types.map((ty) =>
       specBtn('spec', ty, t.spec === ty, isUnlocked(ty), `${BUILDINGS[ty].icon} ${BUILDINGS[ty].names[0]}${isUnlocked(ty) ? '' : ' 🔒'}`)).join('')}</div>` : '';
-    return head(z.icon, `${z.name} zone`, `<span class="sub">$${ZONE_COST}/tile · ${z.terrain.map((x) => TERRAIN[x].name).join(', ')}</span>`)
+    return head(z.icon, `${z.name} zone`, `<span class="sub">$${ZONE_COST}/tile · ${z.coastal ? 'land next to water' : z.terrain.map((x) => TERRAIN[x].name).join(', ')}</span>`)
       + kvs(stroke) + opts
       + xtra('<p class="note">Companies move in next to a road that leads to a Storage Hub, when the R/C/I bars show demand.</p>') + hint;
   }
@@ -110,11 +112,11 @@ function tile(t) {
 }
 
 // ---------- building ----------
-const STATUS = { ok: ['✅', 'Working'], full: ['📦', 'Storage full'], noinput: ['⏳', 'Waiting for input'] };
+const STATUS = { ok: ['✅', 'Working'], full: ['📦', 'Storage full'], noinput: ['⏳', 'Waiting for input'], idle: ['❔', 'Choose a good'] };
 const status = (b) => { const s = STATUS[b.status]; return s ? `<span class="sub">${s[0]} ${s[1]}</span>` : ''; };
 function building(b) {
   const d = def(b), L = b.level - 1;
-  const sub = `${stars(b.level)} ${b.site && !b.site.upgrade ? '<span class="sub">🚧 under construction</span>' : (d.kind === 'producer' || d.kind === 'processor') && b.built ? status(b) : ''}`;
+  const sub = `${stars(b.level)} ${b.site && !b.site.upgrade ? '<span class="sub">🚧 under construction</span>' : (d.kind === 'producer' || d.kind === 'processor' || d.kind === 'harbor') && b.built ? status(b) : ''}`;
   let h = head(d.icon, d.names[L], sub);
   if (d.desc) h += xtra(`<p class="note">${d.desc}</p>`);
   if (!isConnected(b)) h += `<div class="warnbox">🚧 No road to a Storage Hub</div>`;
@@ -125,6 +127,7 @@ function building(b) {
     else if (d.kind === 'producer') h += producerSec(b, d, L);
     else if (d.kind === 'processor') h += processorSec(b, d, L);
     else if (d.kind === 'hub') h += hubSec(b, d, L);
+    else if (d.kind === 'harbor') h += harborSec(b, d, L);
     else if (d.kind === 'park') h += kvs(kv('◎', d.radius[L], 'Radius (tiles)'), kv('🌿', d.strength[L], 'Pollution absorbed'), kv('🔧', '$' + d.upkeep[L] + '/d', 'Upkeep'));
   }
   return h + actions(b, d, L);
@@ -183,6 +186,23 @@ function hubSec(b, d, L) {
       <select class="btn sec2" data-chg="prio" title="Transport priority">${Object.keys(PRIORITIES).map((k) => `<option value="${k}" ${b.priority === k ? 'selected' : ''}>${PRIO_SHORT[k]}</option>`).join('')}</select></div></div>`;
 }
 
+// harbor: pick the export good and the amount shipped per day
+function harborSec(b, d, L) {
+  const e = b.exp, max = d.maxExport[L], step = max <= 10 ? 1 : 5;
+  const price = (g) => GOODS[g].value * d.price[L];
+  const goods = Object.keys(GOODS).map((g) => `<button data-act="expgood" data-arg="${g}" class="${e.g === g ? 'on' : ''}" title="${GOODS[g].name}: $${price(g).toFixed(2)} each">${GOODS[g].icon}</button>`).join('');
+  let info = '<div class="warnbox">Choose a good to export</div>';
+  if (e.g) {
+    const inHubs = activeHubs().reduce((a, h) => a + (h.inv[e.g] || 0), 0);
+    const target = Math.min(d.stock[L], Math.max(8, e.amt * 2));
+    info = kvs(kv('🚢', `${fmt(b.inv[e.g] || 0)}/${target}`, 'Waiting at the quay'), kv('🏙️', fmt(inHubs), `${GOODS[e.g].name} in your hubs`),
+      kv('💰', `$${fmt(price(e.g) * e.amt)}/d`, 'Income at full rate'), kv('Σ', '$' + fmt(b.sold || 0), 'Earned so far'));
+  }
+  return `<div class="sec wide"><h4>Export${e.g ? ' · ' + GOODS[e.g].name + ' · $' + price(e.g).toFixed(2) + ' each' : ''}</h4><div class="goods">${goods}</div></div>
+    <div class="sec wide"><h4>Sell per day</h4><div class="stepper"><button class="btn sec2" data-act="expamt" data-arg="${-step}" ${e.amt <= 0 ? 'disabled' : ''}>−</button>
+      <span class="amt"><b>${e.amt}</b> / ${max}</span><button class="btn sec2" data-act="expamt" data-arg="${step}" ${e.amt >= max ? 'disabled' : ''}>+</button></div>${info}</div>`;
+}
+
 // upgrade + demolish in one footer row
 function actions(b, d, L) {
   let up = '', msg = '';
@@ -192,6 +212,7 @@ function actions(b, d, L) {
     if (d.cap) gains.push(`capacity ${d.cap[next - 1]}→${d.cap[next]}`);
     if (d.rate) gains.push(`output ${d.rate[next - 1]}→${d.rate[next]}/day`);
     if (d.stock) gains.push(`stock ${d.stock[next - 1]}→${d.stock[next]}`);
+    if (d.maxExport) gains.push(`export ${d.maxExport[next - 1]}→${d.maxExport[next]}/day`);
     if (d.trucks) gains.push(`trucks ${d.trucks[next - 1]}→${d.trucks[next]}`);
     if (d.radius) gains.push(`radius ${d.radius[next - 1]}→${d.radius[next]}`);
     if (d.needs) gains.push(`needs ${d.needs[next].map((g) => GOODS[g].icon).join('')}`);

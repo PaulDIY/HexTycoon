@@ -107,6 +107,12 @@ export function consumerWants(b) {
       const target = n * 4, want = target - (b.inv[g] || 0) - (b.incoming[g] || 0);
       if (want >= n) res.push([g, want]);
     }
+  } else if (d.kind === 'harbor') {
+    const { g, amt } = b.exp || {};
+    if (g && amt > 0) {
+      const target = Math.min(d.stock[b.level - 1], Math.max(8, amt * 2)), want = target - (b.inv[g] || 0) - (b.incoming[g] || 0);
+      if (want >= Math.min(4, target / 3)) res.push([g, want]);
+    }
   } else if (d.kind === 'store') {
     const sells = d.sells[b.level - 1], per = Math.floor(d.stock[b.level - 1] / sells.length);
     for (const g of sells) { const want = per - (b.inv[g] || 0) - (b.incoming[g] || 0); if (want >= Math.min(4, per / 3)) res.push([g, want]); }
@@ -215,6 +221,7 @@ function assign(truck, hub, job) {
     const back = access(hub.id, b);
     steps.push({ a: 'move', path: pathHubTo(hub, b, back).reverse() });
   }
+  C.day.trips[job.kind]++;
   truck.steps = steps; truck.si = 0; truck.pi = 0; truck.seg = 0; truck.wait = 0; truck.job = job.kind;
   const p0 = toWorld(hub.q, hub.r); truck.x = p0.x; truck.y = p0.y;
 }
@@ -246,7 +253,7 @@ function selfSupply(hub) {
   for (const [g, n] of Object.entries(s.need)) {
     const rem = n - (s.got[g] || 0) - (s.incoming[g] || 0);
     const amt = Math.min(rem, Math.floor(avail(hub, g)));
-    if (amt > 0) { add(hub.inv, g, -amt); add(s.got, g, amt); }
+    if (amt > 0) { add(hub.inv, g, -amt); add(s.got, g, amt); C.day.use[g] = (C.day.use[g] || 0) + amt; }
   }
 }
 
@@ -283,7 +290,7 @@ function stepTruck(tr, dt) {
       const move = Math.min(budget * rs, segLen - tr.seg);
       tr.seg += move; budget -= move / rs;
       tr.h = Math.atan2(b.y - a.y, b.x - a.x);
-      if (tr.seg >= segLen - 1e-6) { tr.pi++; tr.seg = 0; S.co2 += TRUCK.co2[lvl]; }
+      if (tr.seg >= segLen - 1e-6) { tr.pi++; tr.seg = 0; S.co2 += TRUCK.co2[lvl]; C.day.dist++; C.day.co2 += TRUCK.co2[lvl]; }
       const p = st.path[tr.pi], n = st.path[Math.min(tr.pi + 1, st.path.length - 1)], f = tr.seg / (Math.hypot(n.x - p.x, n.y - p.y) || 1);
       tr.x = p.x + (n.x - p.x) * f; tr.y = p.y + (n.y - p.y) * f;
     }
@@ -306,7 +313,7 @@ function stepTruck(tr, dt) {
       if (t.site) { add(t.site.incoming, st.g, -st.amt); add(t.site.got, st.g, amt); }
       else add(hub.inv, st.g, amt);
     } else { add(t.incoming, st.g, -st.amt); add(t.inv, st.g, amt); }
-    if (amt) emit('delivered', { b: t.id, g: st.g, amt });
+    if (amt) { emit('delivered', { b: t.id, g: st.g, amt }); C.day.moved += amt; if (st.a === 'build') C.day.use[st.g] = (C.day.use[st.g] || 0) + amt; }
     tr.cargo = null;
   }
   tr.si++; tr.pi = 0; tr.seg = 0;

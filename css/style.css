@@ -51,7 +51,7 @@ button { font: inherit; color: inherit; }
 .stat b { font-variant-numeric: tabular-nums; font-size: 15px; }
 .stat small { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .stat small.pos { color: var(--accent); } .stat small.neg { color: var(--warn); }
-.stat.money { cursor: pointer; }
+.stat.money, .stat.eco { cursor: pointer; }
 .demand { display: flex; gap: 3px; align-items: flex-end; height: 26px; padding: 2px 6px; background: var(--chip); border-radius: 8px; flex: none; }
 .demand i { width: 7px; border-radius: 2px; display: block; transition: height .4s; min-height: 2px; }
 .demand .r { background: #5dbb52; } .demand .c { background: #3d97df; } .demand .i { background: #e7b42f; }
@@ -61,7 +61,7 @@ button { font: inherit; color: inherit; }
 #goalbar {
   position: fixed; top: calc(var(--hud-h) - 8px + var(--safe-t)); left: 50%; transform: translateX(-50%); z-index: 15; max-width: min(520px, 70vw);
   background: var(--panel); border-radius: 999px; padding: 5px 14px; font-size: 12.5px; box-shadow: var(--shadow); text-align: center;
-  pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 #goalbar:empty { display: none; }
 
@@ -141,6 +141,14 @@ select.btn { appearance: none; -webkit-appearance: none; text-align: center; tex
 .btnrow select.btn { flex: 1.3; min-width: 0; }
 .btnrow .btn { white-space: nowrap; }
 .sec.span2 { grid-column: span 2; }
+.sec.wide { grid-column: 1 / -1; }
+.goods { display: grid; grid-template-columns: repeat(auto-fill, minmax(34px, 1fr)); gap: 4px; }
+.goods button { border: 0; background: var(--chip); border-radius: 9px; height: 34px; font-size: 17px; cursor: pointer; padding: 0; }
+.goods button.on { background: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper .btn { width: 44px; flex: none; margin-top: 0; font-size: 18px; }
+.stepper .amt { flex: 1; text-align: center; font-size: 13px; color: var(--muted); }
+.stepper .amt b { font-size: 17px; color: var(--ink); }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip { background: var(--chip); border-radius: 99px; padding: 2px 7px; font-size: 11.5px; font-variant-numeric: tabular-nums; }
 .chip.miss { outline: 1.5px dashed var(--warn); }
@@ -178,6 +186,46 @@ select.btn { appearance: none; -webkit-appearance: none; text-align: center; tex
 .goal-list li.done { color: var(--muted); text-decoration: line-through; }
 .goal-list li.cur { font-weight: 700; }
 
+/* ---------- statistics window ---------- */
+:root { --chart: #2f8f4e; --chart-area: rgba(47, 143, 78, .14); --chart-bad: #c8553d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --chart: #62c47f; --chart-area: rgba(98, 196, 127, .16); --chart-bad: #e07a62; } }
+:root[data-theme="dark"] { --chart: #62c47f; --chart-area: rgba(98, 196, 127, .16); --chart-bad: #e07a62; }
+.modal-card:has(.stats) { width: min(560px, 100%); }
+.stats .tabs { margin: 8px 0 10px; flex-wrap: nowrap; }
+.stats .tabs button { flex: 1 1 0; white-space: nowrap; }
+.stats .metric { margin: 8px 0 4px; }
+.stats .goods { margin-top: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); gap: 6px; }
+.tile { background: var(--chip); border-radius: 10px; padding: 7px 10px; display: flex; flex-direction: column; min-width: 0; }
+.tile b { font-size: 19px; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.tile small { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chart { margin: 6px 0 0; }
+.chart figcaption { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 2px; }
+.chart figcaption .read { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 9.5px; font-family: inherit; }
+.chart .mark-line { fill: none; stroke: var(--chart); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .mark-area { fill: var(--chart-area); }
+.chart .mark-dot { fill: var(--chart); stroke: var(--panel-solid); stroke-width: 2; }
+.chart .mark-fill { fill: var(--chart); }
+.chart .hit { fill: transparent; cursor: crosshair; }
+.chart .hit:hover { fill: var(--line); }
+.sh { margin: 12px 0 4px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; }
+.hbars { display: flex; flex-direction: column; gap: 4px; }
+.hb { display: grid; grid-template-columns: 7.5em 1fr 3em; align-items: center; gap: 8px; font-size: 12.5px; }
+.hb .l { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hb .t { height: 8px; background: var(--chip); border-radius: 99px; overflow: hidden; }
+.hb .t i { display: block; height: 100%; background: var(--chart); border-radius: 99px; min-width: 2px; }
+.hbars.bad .t i { background: var(--chart-bad); }
+.hb .v { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.stable { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.stable th { text-align: right; font-size: 10.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; padding: 4px 4px; }
+.stable td { text-align: right; padding: 4px 4px; border-top: 1px solid var(--line); }
+.stable th:first-child, .stable td:first-child { text-align: left; }
+.stable tr[data-sgood] { cursor: pointer; }
+.stable tr.sel td { background: var(--chip); font-weight: 600; }
+
 /* ---------- small / portrait screens ---------- */
 @media (max-width: 760px) {
   :root { --menu-w: 54px; --insp-max: 30vh; }
@@ -203,6 +251,9 @@ select.btn { appearance: none; -webkit-appearance: none; text-align: center; tex
   #hud { flex-wrap: wrap; border-radius: 18px; row-gap: 5px; overflow: visible; }
   .speed { margin-left: 0; }
   #btn-eco { margin-left: auto; }
+  #btn-goal { display: none; } /* tap the goal bar or use the menu */
+  .speed button, .hud-btn { width: 34px; }
+  .stable .nm { display: none; }
   #goalbar { max-width: calc(100vw - 24px); top: calc(var(--hud-h) - 6px + var(--safe-t)); }
   #buildmenu, #flyout { top: calc(var(--hud-h) + 30px + var(--safe-t)); }
   body.panel-open #buildmenu, body.panel-open #flyout { top: calc(var(--hud-h) + var(--safe-t)); }

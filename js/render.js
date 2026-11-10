@@ -245,6 +245,7 @@ function drawIndicators(objs, Z) {
     }
     let icon = null;
     if (!isConnected(b)) icon = '🚧';
+    else if (b.built && b.status === 'idle') icon = '❔';
     else if (b.built && b.status === 'noinput') icon = '⏳';
     else if (b.built && b.status === 'full' && Z > 0.8) icon = '📦';
     else if (b.built && b.type === 'house' && b.happy < 30) icon = '☹️';

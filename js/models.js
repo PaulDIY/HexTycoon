@@ -114,6 +114,24 @@ const hub = [
     ...[ -12, -6, 0].map((x) => box(x, 15, 1.4, 1, 0, 3.2, '#5fbf6a')), ...containers(15, -8, ['#4c9a5a', '#3a7fc4', '#4c9a5a', '#e1b33b']), ...tree(16, 12, 0.8)],
 ];
 
+// ---- harbor ----
+const boat = (x, y, l, hull, cabin) => [box(x, y, l, l * 0.38, 0, 2.2, hull), box(x - l * 0.22, y, l * 0.3, l * 0.28, 2.2, 3, cabin),
+  box(x + l * 0.42, y, l * 0.16, l * 0.24, 0.4, 1.8, hull)];
+const crane = (x, y, h, c) => [box(x, y, 2.4, 2.4, 0, h, c), box(x + 4, y, 12, 1.6, h, 1.4, c), box(x - 3, y, 3, 2.4, h - 1, 2.4, '#5b6670'),
+  cyl(x + 9, y, 0.25, h - 6, 6, '#333')];
+const harbor = [
+  () => [box(-4, 0, 18, 18, 0, 1.2, '#a07a4c'), box(10, 0, 16, 5, 0.4, 1, P.wood),
+    ...[[4, -2.4], [10, -2.4], [16, -2.4], [4, 2.4], [10, 2.4], [16, 2.4]].map(([x, y]) => cyl(x, y, 0.5, 0, 2.2, P.dark)),
+    box(-7, -3, 8, 7, 1.2, 5, '#c9a36b'), gable(-7, -3, 9, 8, 6.2, 3, P.roof2), ...crates(-9, 6), ...boat(12, -8, 12, '#e8e2d2', '#3a8fd6')],
+  () => [box(-3, 0, 22, 22, 0, 1.6, P.concrete), box(10, 0, 18, 8, 0, 1.6, '#b9b8b0'), ...crane(2, -4, 16, '#e1b33b'),
+    ...containers(-9, -6, ['#d24d3c', '#3a7fc4', '#e1b33b', '#4c9a5a']), box(-9, -1, 10, 3, 3, 3, '#3a7fc4'),
+    ...boat(14, 10, 18, '#374a5a', '#f2eadb'), box(10, 10, 6, 4, 2.2, 2.6, '#d24d3c')],
+  () => [box(-3, 0, 22, 22, 0, 1.6, '#d6dcd4'), box(10, 0, 18, 8, 0, 1.6, '#c3cbc1'), ...crane(2, -4, 18, '#4cae5a'),
+    box(-9, 4, 10, 8, 1.6, 5, '#e2ebe4'), ...solarRow(-9, 4, 10, 8, 6.6),
+    ...containers(-9, -8, ['#4c9a5a', '#3a7fc4', '#4c9a5a']), ...tree(-13, 11, 0.7),
+    ...boat(14, 10, 20, '#f4f7f4', '#4cae5a'), box(14, 10, 8, 5, 2.2, 0.8, '#4cae5a')],
+];
+
 // ---- park ----
 const park = [
   () => [cyl(0, 0, 17, 0, 0.7, '#7cc463'), ...tree(-6, -4), ...tree(6, 3, 0.9), cyl(4, -7, 3.5, 0, 0.9, P.water), box(-4, 8, 6, 1.4, 0.7, 1.2, P.wood)],
@@ -153,7 +171,7 @@ const truck = [
 ];
 
 const DEFS = {
-  house, store, farm_grain, farm_veg, farm_cotton, lumber, quarry, claypit, hub, park,
+  house, store, farm_grain, farm_veg, farm_cotton, lumber, quarry, claypit, hub, park, harbor,
   bakery: fac('#e8b04a'), cannery: fac('#e06a3a'), sawmill: fac('#a5743a'),
   brickworks: fac('#b5523b'), textile: fac('#7a6ad0'), furniture: fac('#5f8f5a'),
 };

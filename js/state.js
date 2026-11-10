@@ -15,6 +15,12 @@ export function setState(s) {
   for (const t of S.tiles) C.tiles.set(key(t.q, t.r), t);
   C.fieldsDirty = C.groundDirty = C.nearDirty = true;
   C.fields = {}; C.storesNear = {}; C.poll = new Map();
+  C.day = newDayCounters();
+}
+
+// per-day counters for statistics; rolled into S.hist at the end of each day
+export function newDayCounters() {
+  return { prod: {}, use: {}, exp: {}, expIncome: 0, trips: { con: 0, sup: 0, col: 0 }, moved: 0, dist: 0, co2: 0, busy: 0, samples: 0 };
 }
 
 export const tileAt = (q, r) => C.tiles.get(key(q, r));
@@ -95,6 +101,7 @@ export function newGame(seed = Math.floor(Math.random() * 1e6)) {
     tiles: generateMap(seed), buildings: {}, trucks: [], nextId: 1,
     goal: 0, unlockStage: 0, co2: 0, maxPop: 0,
     ledger: { income: 0, expense: 0, lastIncome: 0, lastExpense: 0, day: 0 },
+    hist: [], // one snapshot per finished day (see sim.js closeDay)
   };
   setState(s);
   // starter road row and hub
@@ -118,6 +125,7 @@ export function createBuilding(type, q, r, opts = {}) {
   if (!b.built) b.site = makeSite(d.mats[0], false);
   if (d.kind === 'house') { b.residents = 0; b.sat = {}; b.want = {}; b.happy = 70; b.growT = 0; }
   if (d.kind === 'hub') { b.priority = 'balanced'; }
+  if (d.kind === 'harbor') { b.exp = { g: null, amt: 5 }; b.sold = 0; }
   S.buildings[id] = b;
   const t = tileAt(q, r);
   t.b = id;
@@ -141,6 +149,7 @@ export function serialize() { return JSON.stringify(S); }
 export function deserialize(json) {
   const s = JSON.parse(json);
   if (!s || s.version !== 1) throw new Error('bad save');
+  if (!s.hist) s.hist = []; // saves from before statistics existed
   setState(s);
   return s;
 }

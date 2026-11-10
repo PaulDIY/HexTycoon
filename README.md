@@ -27,6 +27,8 @@ node test/bot.test.js    # 400-day balance run with a bot player (env: SEED, DAY
 | 4. Grow | Citizens need food, then clothes (level 2), then furniture (level 3), all bought at stores within walking range. Happy citizens pay more tax. Companies pay tax on what they produce. |
 | 5. Upgrade | Everything has **3 levels**: houses, stores, farms, mines, factories, hubs (and their trucks), parks and roads. Level 2 unlocks at 40 citizens, level 3 at 200. |
 | 6. Stay green | The ☁️ button in the header shows the pollution overlay. Parks and forests absorb pollution. Level-3 buildings and E-Trucks are close to emission-free. |
+| 7. Export | Paint a **Harbor** zone on land next to water. A port company moves in; select it, pick the good it ships and how many units to sell per day. Trucks bring the good and the city earns its value (×1.15 / ×1.3 at levels 2 and 3). |
+| 8. Statistics | Header buttons: 📊 resources (stock, made, used, sold per good), 🚚 transport (deliveries, fleet utilisation, trips, distance, per hub), 🌿 eco (score history, pollution sources, absorption). Tap a chart to read a day's value. |
 
 **Controls.** On touch: with the Select tool, one finger pans. With zone, road or remove tools, one finger paints. Two fingers pan, pinch-zoom and rotate. On desktop: right-drag pans, the wheel zooms, Q/E rotates, WASD/arrows pan, Space pauses and Esc cancels.
 
@@ -39,6 +41,7 @@ Lumber Camp → Wood → Sawmill → Planks → Carpentry → Furniture ─→ S
 Quarry → Stone          Clay Pit → Clay → Brickworks → Bricks
 Cotton Field → Cotton → Textile Mill → Clothes ─→ Stores
 Wood / Stone / Planks / Bricks → construction sites (via trucks)
+Any good → Harbor → exported for money (amount per day set by the player)
 ```
 
 ## Code map
@@ -55,6 +58,7 @@ Wood / Stone / Planks / Bricks → construction sites (via trucks)
 | `js/render.js` | Camera (pan/zoom/rotate), batched affine ground pass, depth-sorted sprites, overlays, smoke, status icons |
 | `js/input.js` | Pointer, touch and keyboard handling |
 | `js/ui.js`, `js/inspector.js` | Left build menu and flyouts, HUD, toasts, modals, and the bottom-sheet property inspector (tap its header to minimise) |
+| `js/stats.js` | Statistics window (resources, transport, eco) with inline SVG charts, drawn from the daily snapshots in `S.hist` |
 | `js/main.js` | Boot, fixed-step game loop, autosave (localStorage) |
 
 The simulation modules have no DOM access, so they run under Node for tests.
