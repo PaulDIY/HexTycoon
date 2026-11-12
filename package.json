@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/sim.test.js"
+    "test": "node test/sim.test.js",
+    "balance": "node test/balance.js"
   }
 }

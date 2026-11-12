@@ -24,10 +24,10 @@ const CATS = [
     ic: ['🟫', '⬛', '🟩'][i], name: n, sub: `$${ROAD.cost[i]}/tile · speed ×${ROAD.speed[i]}`, locked: LEVEL_UNLOCK[i] > S.maxPop,
     lockMsg: `Unlocks at ${LEVEL_UNLOCK[i]} citizens`, tool: { kind: 'road', level: i + 1 } })) },
   { id: 'logi', ic: '📦', lb: 'Logistics', items: () => [
-    { ic: '📦', name: BUILDINGS.hub.names[0], sub: `$${BUILDINGS.hub.cost[0]} · storage + trucks`, tool: { kind: 'build', type: 'hub' } },
+    { ic: '📦', name: BUILDINGS.hub.names[0], sub: `$${A.placeCost('hub')} · storage + trucks`, tool: { kind: 'build', type: 'hub' } },
     { ic: '🚚', name: 'Fleet overview', sub: 'All hubs and trucks', action: () => { UI.fleet = true; V.selected = null; setTool({ kind: 'select' }); UI.inspDirty = true; openInspector(); } }] },
   { id: 'eco', ic: '🌳', lb: 'Eco', items: () => [
-    { ic: '🌳', name: BUILDINGS.park.names[0], sub: `$${BUILDINGS.park.cost[0]} · absorbs pollution`, tool: { kind: 'build', type: 'park' } },
+    { ic: '🌳', name: BUILDINGS.park.names[0], sub: `$${A.placeCost('park')} · absorbs pollution`, tool: { kind: 'build', type: 'park' } },
     { ic: '☀️', name: 'Solar Farm', sub: 'Coming soon: power grid', locked: true, lockMsg: 'Power supply is coming in a future update' },
     { ic: '🔌', name: 'Power Line', sub: 'Coming soon: power grid', locked: true, lockMsg: 'Power grid is coming in a future update' }] },
   { id: 'bulldoze', ic: '🧨', lb: 'Remove', tool: { kind: 'bulldoze' } },

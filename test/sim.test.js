@@ -41,6 +41,48 @@ for (let i = 0; i < days * DAY / TICK; i++) {
 const s = computeStats();
 console.log('counts', JSON.stringify(s.count), 'goal', S.goal);
 if (!(s.pop > 0)) { console.error('FAIL: no population'); process.exit(1); }
+
+// ---------- balance systems ----------
+import { placeCost, isCoastal } from '../js/actions.js';
+import { marketFactor } from '../js/sim.js';
+import { createBuilding, serialize, deserialize } from '../js/state.js';
+const fails = [];
+const expect = (ok, msg) => { if (!ok) fails.push(msg); };
+
+// harbor exports saturate the market, which recovers once shipping stops
+{
+  const t = S.tiles.find((x) => isCoastal(x) && !x.b && !x.road);
+  const h = createBuilding('harbor', t.q, t.r, { built: true });
+  h.exp = { g: 'furniture', amt: 25 }; h.inv = { furniture: 200 };
+  const f0 = marketFactor('furniture');
+  for (let i = 0; i < 3 * DAY / TICK; i++) tick(TICK);
+  const f1 = marketFactor('furniture');
+  expect(h.sold > 0, 'harbor sold nothing');
+  expect(f0 === 1 && f1 < 0.9, `market factor should drop: ${f0} -> ${f1}`);
+  h.exp.amt = 0;
+  for (let i = 0; i < 5 * DAY / TICK; i++) tick(TICK);
+  expect(marketFactor('furniture') > f1 + 0.1, `market should recover: ${f1} -> ${marketFactor('furniture')}`);
+}
+
+// an old save without market data still loads
+{
+  const j = JSON.parse(serialize()); delete j.market;
+  deserialize(JSON.stringify(j));
+  expect(S.market && typeof S.market === 'object' && marketFactor('food') === 1, 'old save: market missing');
+}
+
+// hubs and parks get pricier with each one owned (linear)
+{
+  newGame(99);
+  expect(placeCost('hub') === 300 && placeCost('park') === 60, `base costs ${placeCost('hub')} / ${placeCost('park')}`);
+  const free = S.tiles.filter((x) => !x.b && !x.road && x.terrain !== 'water');
+  createBuilding('hub', free[0].q, free[0].r);
+  expect(placeCost('hub') === 450, `3rd hub should cost 450, got ${placeCost('hub')}`);
+  for (let i = 1; i <= 10; i++) createBuilding('park', free[i].q, free[i].r);
+  expect(placeCost('park') === 120, `11th park should cost 120, got ${placeCost('park')}`);
+}
+
+if (fails.length) { console.error('FAIL:\n  ' + fails.join('\n  ')); process.exit(1); }
 console.log('OK');
 import { access, activeHubs } from '../js/logistics.js';
 if (process.env.DUMP) {

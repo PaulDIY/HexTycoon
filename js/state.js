@@ -102,6 +102,7 @@ export function newGame(seed = Math.floor(Math.random() * 1e6)) {
     goal: 0, unlockStage: 0, co2: 0, maxPop: 0,
     ledger: { income: 0, expense: 0, lastIncome: 0, lastExpense: 0, day: 0 },
     hist: [], // one snapshot per finished day (see sim.js closeDay)
+    market: {}, // recent export volume per good, lowers harbor prices (see sim.js marketFactor)
   };
   setState(s);
   // starter road row and hub
@@ -134,7 +135,7 @@ export function createBuilding(type, q, r, opts = {}) {
 }
 
 export function makeSite(mats, upgrade) {
-  return { need: { ...mats }, got: {}, incoming: {}, progress: 0, upgrade };
+  return { need: { ...mats }, got: {}, incoming: {}, progress: 0, upgrade, t0: S.time }; // t0: when the site opened
 }
 
 export function addTruck(hub) {
@@ -150,6 +151,7 @@ export function deserialize(json) {
   const s = JSON.parse(json);
   if (!s || s.version !== 1) throw new Error('bad save');
   if (!s.hist) s.hist = []; // saves from before statistics existed
+  if (!s.market) s.market = {}; // saves from before export saturation
   setState(s);
   return s;
 }

@@ -1,6 +1,6 @@
 // Road network distance fields, truck job dispatch and movement.
 import { S, C, tileAt, tileByKey, roadNeighbors, def, emit } from './state.js';
-import { BUILDINGS, ROAD, TRUCK, PRIORITIES } from './config.js';
+import { BUILDINGS, ROAD, TRUCK, PRIORITIES, DAY } from './config.js';
 import { key, parseKey, toWorld, TILE_W, hexDist } from './hex.js';
 
 // ---------- distance fields (Dijkstra from every hub over roads) ----------
@@ -166,13 +166,16 @@ function findJob(truck, hub) {
     if (!accHB) continue;
     // construction
     if (b.site) {
+      // sites gain priority the longer they wait, so short supply runs can't starve construction forever
+      const waitDays = Math.min(6, (S.time - (b.site.t0 ?? S.time)) / DAY);
+      const urgency = 1 + waitDays * 0.25; // up to ×2.5 after 6 days
       for (const [g, n] of Object.entries(b.site.need)) {
         const rem = n - (b.site.got[g] || 0) - (b.site.incoming[g] || 0);
         if (rem <= 0) continue;
         const src = source(g, b, accHB); if (!src) continue;
         const amt = Math.min(rem, Math.floor(avail(src.h, g)), cap);
         if (amt < 1) continue;
-        consider(W.con * (1 + amt / cap) / (src.d + accHB.d + 3), { kind: 'con', b, g, amt, src });
+        consider(W.con * urgency * (1 + amt / cap) / (src.d + accHB.d + 3), { kind: 'con', b, g, amt, src });
       }
     }
     // supply consumers

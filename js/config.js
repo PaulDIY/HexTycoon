@@ -33,6 +33,11 @@ export const GOODS = {
 export const NEED_RATE = { food: 0.25, clothes: 0.12, furniture: 0.06 };
 export const COMPANY_TAX = 0.4; // share of produced value
 export const SALES_TAX = 0.5; // share of sold value
+// Exports saturate the overseas market: price × 1 / (1 + volume / sat).
+// volume grows by 1 per unit shipped (all harbors together) and is multiplied by decay each day.
+export const MARKET = { sat: 150, decay: 0.8 };
+// Each extra hub / park you own raises the next one's price by this share of its base cost.
+export const COUNT_SCALE = { hub: 0.5, park: 0.1 };
 
 export const ZONES = {
   res: {
@@ -112,11 +117,11 @@ const MATS_L = [
 
 const producer = (o) => ({
   kind: "producer",
-  rate: [4, 7, 11],
+  rate: [4, 8, 14],
   workers: [2, 3, 4],
   buf: [12, 20, 30],
   mats: MATS_S,
-  upCost: [0, 150, 400],
+  upCost: [0, 30, 90],
   poll: [0.4, 0.3, 0.05],
   unlock: 0,
   ...o,
@@ -124,11 +129,11 @@ const producer = (o) => ({
 const processor = (o) => ({
   kind: "processor",
   zone: "ind",
-  rate: [3, 5, 8],
+  rate: [3, 6, 10],
   workers: [3, 5, 7],
   buf: [10, 20, 30],
   mats: MATS_M,
-  upCost: [0, 220, 550],
+  upCost: [0, 40, 120],
   poll: [1.4, 1.0, 0.2],
   unlock: 0,
   ...o,
@@ -144,7 +149,7 @@ export const BUILDINGS = {
     needs: [["food"], ["food", "clothes"], ["food", "clothes", "furniture"]],
     tax: [1.5, 2.2, 3.2],
     mats: MATS_S,
-    upCost: [0, 120, 380],
+    upCost: [0, 65, 500],
     poll: [0.1, 0.1, 0],
     unlock: 0,
     desc: "Citizens live here and shop at stores within walking range.",
@@ -178,6 +183,7 @@ export const BUILDINGS = {
     out: "veg",
     icon: "🥕",
     bonus: "fertile",
+    upCost: [0, 50, 160],
     names: ["Vegetable Patch", "Market Garden", "Greenhouse Farm"],
     desc: "Grows vegetables. +30% on fertile soil.",
   }),
@@ -185,7 +191,7 @@ export const BUILDINGS = {
     zone: "agri",
     out: "cotton",
     icon: "☁️",
-    unlock: 120,
+    unlock: 40,
     bonus: "fertile",
     names: ["Cotton Field", "Cotton Farm", "Organic Cotton"],
     desc: "Grows cotton for textiles.",
@@ -208,6 +214,7 @@ export const BUILDINGS = {
     poll: [1.5, 1.2, 0.4],
     mats: [{ wood: 3 }, MATS_S[1], MATS_S[2]],
     names: ["Stone Quarry", "Quarry Works", "Low-Impact Quarry"],
+    upCost: [0, 25, 80],
     desc: "Cuts stone. Must be on hills.",
   }),
   claypit: producer({
@@ -215,9 +222,10 @@ export const BUILDINGS = {
     terrain: ["sand"],
     out: "clay",
     icon: "🟫",
-    unlock: 40,
+    unlock: 120,
     poll: [1.0, 0.8, 0.2],
     names: ["Clay Pit", "Clay Works", "Restored Clay Pit"],
+    upCost: [0, 20, 75],
     desc: "Digs clay. Must be on sand.",
   }),
 
@@ -231,32 +239,35 @@ export const BUILDINGS = {
     icon: "🥫",
     unlock: 40,
     recipe: { in: { veg: 2 }, out: { food: 3 } },
+    upCost: [0, 65, 190],
     names: ["Cannery", "Food Plant", "Zero-Waste Cannery"],
     desc: "Preserves vegetables as food.",
   }),
   sawmill: processor({
     icon: "🪚",
     recipe: { in: { wood: 2 }, out: { planks: 1 } },
+    upCost: [0, 20, 70],
     names: ["Sawmill", "Timber Mill", "Circular Sawmill"],
     desc: "Cuts wood into planks.",
   }),
   brickworks: processor({
     icon: "🧱",
-    unlock: 40,
+    unlock: 120,
     recipe: { in: { clay: 2 }, out: { bricks: 1 } },
+    upCost: [0, 25, 85],
     names: ["Brickworks", "Brick Factory", "Green Kiln"],
     desc: "Fires clay into bricks.",
   }),
   textile: processor({
     icon: "👕",
-    unlock: 120,
+    unlock: 40,
     recipe: { in: { cotton: 2 }, out: { clothes: 1 } },
     names: ["Textile Shop", "Textile Mill", "Fair Fashion Mill"],
     desc: "Weaves cotton into clothes.",
   }),
   furniture: processor({
     icon: "🪑",
-    unlock: 250,
+    unlock: 200,
     recipe: { in: { planks: 2 }, out: { furniture: 1 } },
     names: ["Carpentry", "Furniture Factory", "Upcycling Workshop"],
     desc: "Builds furniture from planks.",
@@ -289,7 +300,7 @@ export const BUILDINGS = {
     price: [1.0, 1.15, 1.3], // export price = good value × price
     workers: [3, 5, 8],
     mats: MATS_M,
-    upCost: [0, 250, 600],
+    upCost: [0, 135, 295],
     poll: [0.6, 0.5, 0.1],
     unlock: 0,
     desc: "Ships one good overseas. Choose the good and how much to sell per day.",
@@ -336,11 +347,10 @@ export const PRIORITIES = {
 export const UNLOCK_MESSAGES = [
   [
     40,
-    "Level 2 upgrades, Paved Roads, Clay Pits, Brickworks & Cannery unlocked!",
+    "Level 2 upgrades, Paved Roads, Cannery, Cotton farms & Textile mills unlocked!",
   ],
-  [120, "Cotton farms and Textile mills unlocked!"],
-  [200, "Level 3 eco upgrades and Green Boulevards unlocked!"],
-  [250, "Furniture workshops unlocked!"],
+  [120, "Clay Pits and Brickworks unlocked!"],
+  [200, "Level 3 eco upgrades, Green Boulevards & Furniture workshops unlocked!"],
 ];
 
 // Onboarding goals. check(s, stats) -> bool

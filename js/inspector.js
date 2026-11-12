@@ -3,7 +3,7 @@ import { S, C, def, tileAt, hubTrucks } from './state.js';
 import { BUILDINGS, ZONES, GOODS, ROAD, TERRAIN, TRUCK, PRIORITIES, LEVEL_UNLOCK, ZONE_COST, NEED_RATE } from './config.js';
 import { V } from './render.js';
 import * as A from './actions.js';
-import { isUnlocked, levelUnlocked } from './sim.js';
+import { isUnlocked, levelUnlocked, marketFactor } from './sim.js';
 import { activeHubs, isConnected, hubFree } from './logistics.js';
 import { key } from './hex.js';
 
@@ -82,7 +82,7 @@ function tool(UI) {
   }
   if (t.kind === 'build') {
     const d = BUILDINGS[t.type];
-    return head(d.icon, d.names[0], `<span class="sub">$${d.cost[0]}</span>`)
+    return head(d.icon, d.names[0], `<span class="sub">$${A.placeCost(t.type)}</span>`)
       + `<div class="chips">${matsChips(d.mats[0])}</div>`
       + (t.type === 'park' ? kvs(kv('◎', d.radius[0], 'Radius (tiles)'), kv('🌿', d.strength[0], 'Pollution absorbed')) : '')
       + (t.type === 'hub' ? kvs(kv('📦', d.cap[0], 'Storage'), kv('🚚', d.trucks[0], 'Truck slots')) : '')
@@ -189,7 +189,7 @@ function hubSec(b, d, L) {
 // harbor: pick the export good and the amount shipped per day
 function harborSec(b, d, L) {
   const e = b.exp, max = d.maxExport[L], step = max <= 10 ? 1 : 5;
-  const price = (g) => GOODS[g].value * d.price[L];
+  const price = (g) => GOODS[g].value * d.price[L] * marketFactor(g);
   const goods = Object.keys(GOODS).map((g) => `<button data-act="expgood" data-arg="${g}" class="${e.g === g ? 'on' : ''}" title="${GOODS[g].name}: $${price(g).toFixed(2)} each">${GOODS[g].icon}</button>`).join('');
   let info = '<div class="warnbox">Choose a good to export</div>';
   if (e.g) {
@@ -197,6 +197,8 @@ function harborSec(b, d, L) {
     const target = Math.min(d.stock[L], Math.max(8, e.amt * 2));
     info = kvs(kv('🚢', `${fmt(b.inv[e.g] || 0)}/${target}`, 'Waiting at the quay'), kv('🏙️', fmt(inHubs), `${GOODS[e.g].name} in your hubs`),
       kv('💰', `$${fmt(price(e.g) * e.amt)}/d`, 'Income at full rate'), kv('Σ', '$' + fmt(b.sold || 0), 'Earned so far'));
+    const f = marketFactor(e.g);
+    if (f < 0.9) info += `<p class="note">📉 ${GOODS[e.g].name} market saturated: price −${Math.round((1 - f) * 100)}%. Exporting a second good pays more; prices recover over a few days.</p>`;
   }
   return `<div class="sec wide"><h4>Export${e.g ? ' · ' + GOODS[e.g].name + ' · $' + price(e.g).toFixed(2) + ' each' : ''}</h4><div class="goods">${goods}</div></div>
     <div class="sec wide"><h4>Sell per day</h4><div class="stepper"><button class="btn sec2" data-act="expamt" data-arg="${-step}" ${e.amt <= 0 ? 'disabled' : ''}>−</button>

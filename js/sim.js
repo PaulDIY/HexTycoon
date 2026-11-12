@@ -1,6 +1,6 @@
 // Economy simulation: construction, production, citizens, stores, taxes, growth, pollution, goals.
 import { S, C, tileAt, neighbors, roadNeighbors, def, createBuilding, emit, hubTrucks, newDayCounters } from './state.js';
-import { DAY, BUILDINGS, ZONES, GOODS, NEED_RATE, COMPANY_TAX, SALES_TAX, ROAD, TRUCK, LEVEL_UNLOCK, UNLOCK_MESSAGES, GOALS } from './config.js';
+import { DAY, BUILDINGS, ZONES, GOODS, NEED_RATE, COMPANY_TAX, SALES_TAX, ROAD, TRUCK, LEVEL_UNLOCK, UNLOCK_MESSAGES, GOALS, MARKET } from './config.js';
 import { hexDist, key, hash2 } from './hex.js';
 import { tickLogistics, activeHubs, isConnected } from './logistics.js';
 
@@ -167,6 +167,9 @@ function tickHouse(b, d, dt) {
   }
 }
 
+// Overseas price multiplier for good g: drops as you export more of it, recovers over a few days.
+export const marketFactor = (g) => 1 / (1 + ((S.market && S.market[g]) || 0) / MARKET.sat);
+
 // Harbor: ships the chosen good at the chosen rate. Stock of a previously chosen good is shipped first.
 function tickHarbor(b, d, dt) {
   const L = b.level - 1, e = b.exp;
@@ -177,7 +180,9 @@ function tickHarbor(b, d, dt) {
   b.progress += e.amt * efficiency(b) * dt / DAY;
   while (b.progress >= 1 && (b.inv[g] || 0) >= 1) {
     b.progress -= 1; add(b.inv, g, -1);
-    const v = GOODS[g].value * d.price[L];
+    const v = GOODS[g].value * d.price[L] * marketFactor(g);
+    if (!S.market) S.market = {};
+    S.market[g] = (S.market[g] || 0) + 1;
     pay(v); b.sold = (b.sold || 0) + v;
     count(C.day.exp, g); C.day.expIncome += v;
   }
@@ -290,6 +295,7 @@ function closeDay(d) {
   });
   if (S.hist.length > HIST_DAYS) S.hist.splice(0, S.hist.length - HIST_DAYS);
   C.day = newDayCounters();
+  for (const g in S.market) { S.market[g] *= MARKET.decay; if (S.market[g] < 0.5) delete S.market[g]; }
 }
 
 function checkGoals() {

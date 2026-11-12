@@ -1,6 +1,6 @@
 // Player actions with validation. Each returns { ok, msg }.
 import { S, C, tileAt, neighbors, roadNeighbors, def, createBuilding, makeSite, addTruck, hubTrucks, emit } from './state.js';
-import { BUILDINGS, ZONES, ROAD, ZONE_COST, LEVEL_UNLOCK } from './config.js';
+import { BUILDINGS, ZONES, ROAD, ZONE_COST, LEVEL_UNLOCK, COUNT_SCALE } from './config.js';
 import { cancelTrucksFor, cancelTruck, activeHubs } from './logistics.js';
 import { spend, pay, levelUnlocked, isUnlocked, computeStats } from './sim.js';
 
@@ -55,6 +55,17 @@ export function buildRoad(t, level) {
   return OK;
 }
 
+// Price of placing a new player building: rises linearly with how many you already own.
+// The starter hub doesn't count: the 2nd hub costs the base price, the 3rd × 1.5, the 4th × 2 …
+export function placeCost(type) {
+  const base = BUILDINGS[type].cost[0], k = COUNT_SCALE[type] || 0;
+  if (!k) return base;
+  let n = 0;
+  for (const b of Object.values(S.buildings)) if (b.type === type) n++;
+  if (type === 'hub') n = Math.max(0, n - 1);
+  return Math.round((base * (1 + k * n)) / 10) * 10;
+}
+
 export function canPlace(type, t) {
   const d = BUILDINGS[type];
   if (!t) return fail('Outside the map');
@@ -63,14 +74,13 @@ export function canPlace(type, t) {
   if (t.road) return fail('Road here');
   if (!isUnlocked(type)) return fail('Locked');
   if (d.needsRoad && !roadNeighbors(t).length) return fail('Must be next to a road');
-  if (S.money < d.cost[0]) return fail('Not enough money');
+  if (S.money < placeCost(type)) return fail('Not enough money');
   return OK;
 }
 export function place(type, t) {
   const c = canPlace(type, t);
   if (!c.ok) return c;
-  const d = BUILDINGS[type];
-  spend(d.cost[0]);
+  spend(placeCost(type));
   t.zone = null; t.spec = null;
   if (t.terrain === 'forest') t.terrain = 'grass';
   const b = createBuilding(type, t.q, t.r);
