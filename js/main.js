@@ -3,7 +3,7 @@ import { S, C, newGame, serialize, deserialize } from './state.js';
 import { TICK, MAP_RADIUS } from './config.js';
 import { tick, computeStats, refreshDerived } from './sim.js';
 import { initRender, frame, V, centerOn } from './render.js';
-import { initInput } from './input.js';
+import { initInput, updateKeys } from './input.js';
 import { initUI, updateUI, mapHandlers, toast, setSpeed, showModal, HELP, UI, closeInspector, setTool } from './ui.js';
 import { BUILDINGS } from './config.js';
 import * as Actions from './actions.js';
@@ -67,6 +67,7 @@ function loop(now) {
   while (acc >= TICK && n < 40) { tick(TICK); acc -= TICK; n++; }
   if (n >= 40) acc = 0;
   handleEvents();
+  updateKeys(dt);
   frame(dt);
   updateUI(dt);
   requestAnimationFrame(loop);

@@ -83,15 +83,38 @@ export function initInput(canvas, handlers) {
   canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
   addEventListener('keydown', (e) => {
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
-    if (k === 'q') rotateBy(-0.12); else if (k === 'e') rotateBy(0.12);
-    else if (k === 'w' || k === 'arrowup') panBy(0, 40); else if (k === 's' || k === 'arrowdown') panBy(0, -40);
-    else if (k === 'a' || k === 'arrowleft') panBy(40, 0); else if (k === 'd' || k === 'arrowright') panBy(-40, 0);
-    else if (k === '+' || k === '=') zoomAt(innerWidth / 2, innerHeight / 2, 1.15);
-    else if (k === '-') zoomAt(innerWidth / 2, innerHeight / 2, 1 / 1.15);
+    if (k in HOLD) { held.add(HOLD[k]); if (k.startsWith('arrow')) e.preventDefault(); }
     else if (k === 'escape') h.escape();
     else if (k === ' ') { e.preventDefault(); h.togglePause(); }
   });
+  addEventListener('keyup', (e) => { const a = HOLD[e.key.toLowerCase()]; if (a) held.delete(a); });
+  addEventListener('blur', () => held.clear()); // don't keep scrolling after alt-tab
+}
+
+// ---------- smooth held-key camera ----------
+// Keys set a target velocity; the actual velocity eases toward it so motion starts and stops softly.
+const HOLD = {
+  w: 'up', arrowup: 'up', s: 'down', arrowdown: 'down', a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right',
+  q: 'rotL', e: 'rotR', '+': 'zoomIn', '=': 'zoomIn', '-': 'zoomOut',
+};
+const held = new Set();
+const vel = { x: 0, y: 0, rot: 0, zoom: 0 };
+const KEY_PAN = 900, KEY_ROT = 1.8, KEY_ZOOM = 1.6, EASE = 12; // px/s, rad/s, log-zoom/s, 1/s
+
+export function updateKeys(dt) {
+  const on = (a) => (held.has(a) ? 1 : 0);
+  let tx = on('left') - on('right'), ty = on('up') - on('down');
+  if (tx && ty) { tx *= Math.SQRT1_2; ty *= Math.SQRT1_2; } // diagonals aren't faster
+  const k = 1 - Math.exp(-EASE * dt);
+  vel.x += (tx * KEY_PAN - vel.x) * k;
+  vel.y += (ty * KEY_PAN - vel.y) * k;
+  vel.rot += ((on('rotR') - on('rotL')) * KEY_ROT - vel.rot) * k;
+  vel.zoom += ((on('zoomIn') - on('zoomOut')) * KEY_ZOOM - vel.zoom) * k;
+  if (Math.abs(vel.x) + Math.abs(vel.y) > 0.5) panBy(vel.x * dt, vel.y * dt); else vel.x = vel.y = 0;
+  if (Math.abs(vel.rot) > 0.002) rotateBy(vel.rot * dt); else vel.rot = 0;
+  if (Math.abs(vel.zoom) > 0.002) zoomAt(innerWidth / 2, innerHeight / 2, Math.exp(vel.zoom * dt)); else vel.zoom = 0;
 }
 
 function gestureInfo() {
