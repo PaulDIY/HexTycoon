@@ -41,6 +41,25 @@ function bind(el) {
     else if (act === 'spec') uiRef.tool = { ...uiRef.tool, spec: arg };
     else if (act === 'tilespec') { const t = V.selTile; if (t) { t.spec = arg; } }
     else if (act === 'gohub') { V.selected = arg; uiRef.fleet = false; }
+    // depot rules
+    else if (act === 'keepmode' && b) A.setKeepMode(b, arg === 'pick');
+    else if (act === 'keepgood' && b) A.toggleKeep(b, arg);
+    else if (act === 'keepmax' && b) { const [g, dl] = arg.split('|'); A.setKeepMax(b, g, +dl); }
+    // routes
+    else if (act === 'newroute' && b) { r = A.createRoute(b); if (r.ok) setTool({ kind: 'route', rid: r.r.id }); }
+    else if (act === 'openroute') setTool({ kind: 'route', rid: arg });
+    else if (act.startsWith('r-')) {
+      const rt = S.routes.find((x) => x.id === uiRef.tool.rid);
+      if (rt) {
+        const [i, way, g] = (arg || '').split('|');
+        if (act === 'r-truck') r = A.routeTruckDelta(rt, +arg);
+        else if (act === 'r-good') r = A.toggleStopGood(rt, +i, way, g);
+        else if (act === 'r-full') r = A.toggleStopFull(rt, +i);
+        else if (act === 'r-del') r = A.removeStop(rt, +i);
+        else if (act === 'r-done') { V.selected = rt.hub; setTool({ kind: 'select' }); }
+        else if (act === 'r-delete') { A.deleteRoute(rt); V.selected = rt.hub; setTool({ kind: 'select' }); }
+      }
+    }
     if (!r.ok && r.msg) window.dispatchEvent(new CustomEvent('hv-toast', { detail: { text: r.msg, kind: 'err' } }));
     uiRef.inspDirty = true;
   });
@@ -51,10 +70,17 @@ function bind(el) {
 }
 
 let lastHTML = '';
+// tools are switched by ui.js (it imports this module, so we ask it via an event)
+const setTool = (t) => window.dispatchEvent(new CustomEvent('hv-tool', { detail: t }));
+
 export function renderInspector(el, UI) {
   uiRef = UI; bind(el);
+  // routes drawn on the map: the one being edited, or all routes of the selected hub
+  const sel = V.selected && S.buildings[V.selected];
+  V.routes = UI.tool.kind === 'route' ? [UI.tool.rid] : sel && sel.type === 'hub' ? S.routes.filter((r) => r.hub === sel.id).map((r) => r.id) : [];
   let html;
-  if (UI.fleet) html = fleet();
+  if (UI.tool.kind === 'route') html = routeEditor(UI);
+  else if (UI.fleet) html = fleet();
   else if (V.selected && S.buildings[V.selected]) html = building(S.buildings[V.selected]);
   else if (UI.tool.kind !== 'select') html = tool(UI);
   else if (V.selTile) html = tile(V.selTile);
@@ -264,7 +290,61 @@ function hubSec(b, d, L) {
       ${hubFree(b) < 5 ? '<div class="warnbox">Hub is full</div>' : ''}${kvs(staffKv(b, d, L))}</div>`
     + `<div class="sec span2"><h4>${TRUCK.names[L]}s ·${ti.n}/${ti.max} · ${busy} busy</h4>
       <div class="btnrow"><button class="btn" data-act="buytruck" ${ti.n >= ti.max ? 'disabled' : ''} title="Buy a ${TRUCK.names[L]}">🚚 +$${ti.cost}</button><button class="btn sec2 sell" data-act="selltruck" ${ti.n ? '' : 'disabled'} title="Sell a truck">Sell</button>
-      <select class="btn sec2" data-chg="prio" title="Transport priority">${Object.keys(PRIORITIES).map((k) => `<option value="${k}" ${b.priority === k ? 'selected' : ''}>${PRIO_SHORT[k]}</option>`).join('')}</select></div></div>`;
+      <select class="btn sec2" data-chg="prio" title="Transport priority">${Object.keys(PRIORITIES).map((k) => `<option value="${k}" ${b.priority === k ? 'selected' : ''}>${PRIO_SHORT[k]}</option>`).join('')}</select></div></div>`
+    + keepSec(b, d, L) + routesSec(b);
+}
+
+// depot rules: which goods free trucks bring to this hub, and how many
+function keepSec(b, d, L) {
+  const step = A.keepStep(b);
+  const mode = `<div class="seg"><button data-act="keepmode" data-arg="auto" class="${b.keep ? '' : 'on'}">Any good</button><button data-act="keepmode" data-arg="pick" class="${b.keep ? 'on' : ''}">Chosen goods</button></div>`;
+  if (!b.keep) return `<div class="sec wide"><h4>Stores</h4>${mode}${xtra(`<p class="note">Free trucks bring any good here, up to ${Math.round(d.cap[L] * 0.35)} of each.</p>`)}</div>`;
+  const grid = `<div class="goods">${Object.keys(GOODS).map((g) => `<button data-act="keepgood" data-arg="${g}" class="${g in b.keep ? 'on' : ''}" title="${GOODS[g].name}">${GOODS[g].icon}</button>`).join('')}</div>`;
+  const rows = Object.entries(b.keep).map(([g, max]) => `<span>${GOODS[g].icon} ${GOODS[g].name}</span><span class="n ${(b.inv[g] || 0) >= max ? 'bad' : ''}">${fmt(b.inv[g] || 0)}</span>
+    <span class="mini-step"><button data-act="keepmax" data-arg="${g}|${-step}" ${max <= 0 ? 'disabled' : ''}>−</button><b>${max}</b><button data-act="keepmax" data-arg="${g}|${step}">+</button></span>`).join('');
+  const sum = Object.values(b.keep).reduce((a, v) => a + v, 0);
+  return `<div class="sec wide"><h4>Stores · chosen goods</h4>${mode}${grid}
+    ${rows ? `<div class="gtab g3"><small>Good</small><small class="n">Stock</small><small class="n">Max</small>${rows}</div>` : '<p class="note">Tap goods above to store them here.</p>'}
+    ${sum > d.cap[L] ? `<p class="note">Limits add up to ${fmt(sum)}, more than the ${d.cap[L]} space.</p>` : ''}
+    ${xtra('<p class="note">Free trucks only bring these goods here. Routes can still unload anything.</p>')}</div>`;
+}
+
+const stopIcons = (r) => r.stops.map((st) => { const x = S.buildings[st.b]; return x ? def(x).icon : '❔'; }).join('→') || 'no stops';
+function routesSec(b) {
+  const rs = S.routes.filter((r) => r.hub === b.id);
+  const list = rs.map((r) => `<button class="item" data-act="openroute" data-arg="${r.id}"><span class="rdot" style="background:${r.color}"></span><span class="tx"><b>${r.name}</b>
+    <small>${stopIcons(r)} · 🚚 ${A.routeTrucks(r).length} · ${fmt(r.lastMoved || 0)}/day</small></span></button>`).join('');
+  const free = hubTrucks(b.id).filter((t) => !t.route).length;
+  return `<div class="sec wide"><h4>Routes</h4>${list}<button class="btn sec2" data-act="newroute">＋ New route</button>
+    ${xtra(`<p class="note">${free} truck${free === 1 ? '' : 's'} without a route drive on their own: construction and everything no route covers.</p>`)}</div>`;
+}
+
+// ---------- route editor (map taps add stops while it is open) ----------
+const gbtn = (i, way, g, on) => `<button class="g ${on ? 'on' : ''}" data-act="r-good" data-arg="${i}|${way}|${g}" title="${way} ${g === '*' ? 'everything' : GOODS[g].name}">${g === '*' ? 'all' : GOODS[g].icon}</button>`;
+function routeEditor(UI) {
+  const r = S.routes.find((x) => x.id === UI.tool.rid);
+  if (!r) return '<p class="note">This route no longer exists.</p>';
+  const hub = S.buildings[r.hub], ts = A.routeTrucks(r), cap = TRUCK.cap[hub.level - 1];
+  const free = hubTrucks(hub.id).filter((t) => !t.route).length, ti = A.truckInfo(hub);
+  const stops = r.stops.map((st, i) => {
+    const x = S.buildings[st.b]; if (!x) return '';
+    const o = A.stopOptions(x), dx = def(x);
+    const load = o.load.length ? `<span class="way">⬆</span>${o.load.map((g) => gbtn(i, 'load', g, st.load.includes(g))).join('')}` : '';
+    const unload = o.unload.length ? `<span class="way">⬇</span>${o.unload.map((g) => gbtn(i, 'unload', g, st.unload.includes(g))).join('')}` : '';
+    return `<div class="stop"><span class="num" style="background:${r.color}">${i + 1}</span>
+      <div class="sb"><div class="sn">${dx.icon} ${dx.names[x.level - 1]}</div><div class="sg">${unload}${load}</div></div>
+      ${st.load.length ? `<button class="g ${st.full ? 'on' : ''}" data-act="r-full" data-arg="${i}" title="Wait for a full load">⏳</button>` : ''}
+      <button class="g x" data-act="r-del" data-arg="${i}" title="Remove stop">✕</button></div>`;
+  }).join('');
+  const hint = r.stops.length < 2 ? `<div class="warnbox">👆 Tap ${r.stops.length ? 'the next building' : 'buildings on the map in order'} to add stops. The trucks loop through them.</div>`
+    : '<p class="note">👆 Tap more buildings to add stops. ⬇ unload, ⬆ load, ⏳ wait for a full load.</p>';
+  const warn = r.stops.length >= 2 && !ts.length ? '<div class="warnbox">Add a truck to start this route</div>' : '';
+  return head('🛣️', r.name, `<span class="sub"><span class="rdot" style="background:${r.color}"></span> ${BUILDINGS.hub.names[hub.level - 1]}</span>`)
+    + kvs(kv('📦', fmt(r.lastMoved || 0) + '/d', 'Units delivered yesterday'), kv('⏱️', r.loopT ? r.loopT.toFixed(1) + ' d' : '–', 'Time for one round trip'), kv('🚛', cap, 'Capacity per truck'))
+    + `<div class="sec wide"><h4>Trucks</h4><div class="stepper"><button class="btn sec2" data-act="r-truck" data-arg="-1" ${ts.length ? '' : 'disabled'}>−</button>
+      <span class="amt"><b>${ts.length}</b> on route · ${free} free${ti.n < ti.max ? ` · +$${ti.cost} new` : ''}</span><button class="btn sec2" data-act="r-truck" data-arg="1" ${free || ti.n < ti.max ? '' : 'disabled'}>+</button></div></div>`
+    + `<div class="sec wide"><h4>Stops</h4>${stops}</div>` + hint + warn
+    + `<div class="actions"><button class="btn" data-act="r-done">Done</button><button class="btn danger icon" data-act="r-delete" title="Delete route">🗑️</button></div>`;
 }
 
 // harbor: pick the export good and the amount shipped per day

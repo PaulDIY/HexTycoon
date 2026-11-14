@@ -44,6 +44,7 @@ if (!(s.pop > 0)) { console.error('FAIL: no population'); process.exit(1); }
 
 // ---------- balance systems ----------
 import { placeCost, isCoastal } from '../js/actions.js';
+import * as A from '../js/actions.js';
 import { marketFactor } from '../js/sim.js';
 import { createBuilding, serialize, deserialize } from '../js/state.js';
 const fails = [];
@@ -80,6 +81,37 @@ const expect = (ok, msg) => { if (!ok) fails.push(msg); };
   const hub = Object.values(S.buildings).find((b) => b.type === 'hub');
   expect(hub.staff === 2 && store.staff === 2 && farm.staff === 0, `staff order hub ${hub.staff} store ${store.staff} farm ${farm.staff}`);
   expect(C.stats.workers === 4 && C.stats.vacant === 2, `workers ${C.stats.workers} vacant ${C.stats.vacant}`);
+}
+
+// player routes: a farm → bakery route moves grain; free trucks leave that link alone
+{
+  newGame(11);
+  const hub = Object.values(S.buildings).find((b) => b.type === 'hub');
+  const farm = createBuilding('farm_grain', -3, 2, { built: true });
+  const bakery = createBuilding('bakery', 3, 2, { built: true });
+  const stoneQ = createBuilding('quarry', -1, 2, { built: true });
+  for (const t of [tileAt(-3, 2), tileAt(3, 2), tileAt(-1, 2)]) t.terrain = 'grass';
+  farm.inv.grain = 12; stoneQ.inv.stone = 12;
+  const { r } = A.createRoute(hub);
+  expect(A.addStop(r, farm).ok && A.addStop(r, bakery).ok, 'stops not added');
+  expect(r.stops[0].load.includes('grain') && r.stops[1].unload.includes('grain'), `default stop goods ${JSON.stringify(r.stops)}`);
+  expect(!A.addStop(r, bakery).ok, 'same stop twice in a row should fail');
+  expect(A.routeTruckDelta(r, 1).ok && A.routeTrucks(r).length === 1, 'truck not assigned');
+  // depot rules: this hub only keeps wood, so the quarry's stone stays put
+  A.setKeepMode(hub, true); hub.keep = { wood: 40 };
+  const stone0 = hub.inv.stone || 0;
+  for (let i = 0; i < 4 * DAY / TICK; i++) { farm.inv.grain = Math.max(farm.inv.grain || 0, 12); stoneQ.inv.stone = 12; tick(TICK); }
+  // the bakery's grain can only have come by route: free trucks don't supply links a route covers
+  expect((bakery.inv.grain || 0) >= 8, `route moved nothing: bakery ${JSON.stringify(bakery.inv)}`);
+  expect((hub.inv.stone || 0) <= stone0, `hub took stone despite rules: ${stone0} -> ${hub.inv.stone}`);
+  expect(!S.trucks.some((t) => !t.route && t.steps && t.steps.some((st) => st.from === farm.id)), 'free truck collects from a route stop');
+  // demolishing a stop removes it from the route; deleting the route frees its truck
+  A.demolish(tileAt(3, 2));
+  expect(r.stops.length === 1, `stop not removed: ${r.stops.length}`);
+  A.deleteRoute(r);
+  expect(!S.routes.length && !S.trucks.some((t) => t.route), 'route not deleted');
+  const j = JSON.parse(serialize()); delete j.routes; deserialize(JSON.stringify(j));
+  expect(Array.isArray(S.routes), 'old save: routes missing');
 }
 
 // an old save without market data still loads

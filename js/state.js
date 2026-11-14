@@ -103,6 +103,7 @@ export function newGame(seed = Math.floor(Math.random() * 1e6)) {
     ledger: { income: 0, expense: 0, lastIncome: 0, lastExpense: 0, day: 0 },
     hist: [], // one snapshot per finished day (see sim.js closeDay)
     market: {}, // recent export volume per good, lowers harbor prices (see sim.js marketFactor)
+    routes: [], // player truck routes (see logistics.js routeLeg)
   };
   setState(s);
   // starter road row and hub
@@ -139,7 +140,8 @@ export function makeSite(mats, upgrade) {
 }
 
 export function addTruck(hub) {
-  const t = { id: 't' + S.nextId++, hub: hub.id, steps: null, si: 0, path: null, pi: 0, seg: 0, cargo: null, x: 0, y: 0, h: 0, wait: 0 };
+  const t = { id: 't' + S.nextId++, hub: hub.id, steps: null, si: 0, path: null, pi: 0, seg: 0, cargo: null, x: 0, y: 0, h: 0, wait: 0,
+    route: null, rs: 0, hold: {}, at: hub.id }; // route: id of the player route it runs, rs: next stop, hold: route cargo
   S.trucks.push(t);
   return t;
 }
@@ -152,6 +154,7 @@ export function deserialize(json) {
   if (!s || s.version !== 1) throw new Error('bad save');
   if (!s.hist) s.hist = []; // saves from before statistics existed
   if (!s.market) s.market = {}; // saves from before export saturation
+  if (!s.routes) s.routes = []; // saves from before routes
   setState(s);
   return s;
 }

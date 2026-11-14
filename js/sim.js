@@ -325,6 +325,7 @@ function closeDay(d) {
   if (S.hist.length > HIST_DAYS) S.hist.splice(0, S.hist.length - HIST_DAYS);
   C.day = newDayCounters();
   for (const g in S.market) { S.market[g] *= MARKET.decay; if (S.market[g] < 0.5) delete S.market[g]; }
+  for (const r of S.routes || []) { r.lastMoved = r.moved || 0; r.moved = 0; }
 }
 
 function checkGoals() {

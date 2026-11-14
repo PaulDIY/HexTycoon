@@ -93,8 +93,9 @@ function resources() {
 // ---------- transport ----------
 function transport() {
   const h = last(), busyNow = S.trucks.filter((t) => t.steps).length;
-  const trips = h ? h.trips.con + h.trips.sup + h.trips.col : 0;
-  const series = { moved: (d) => d.moved, busy: (d) => d.busy * 100, trips: (d) => d.trips.con + d.trips.sup + d.trips.col, dist: (d) => d.dist };
+  const tripSum = (d) => d.trips.con + d.trips.sup + d.trips.col + (d.trips.route || 0);
+  const trips = h ? tripSum(h) : 0;
+  const series = { moved: (d) => d.moved, busy: (d) => d.busy * 100, trips: tripSum, dist: (d) => d.dist };
   const names = { moved: 'Goods delivered per day', busy: 'Fleet utilisation', trips: 'Trips per day', dist: 'Tiles driven per day' };
   const pts = S.hist.map((d) => ({ x: d.d, v: series[ST.trMetric](d) }));
   const hubs = activeHubs().map((b) => {
@@ -106,7 +107,7 @@ function transport() {
     + metricSeg('trMetric', { moved: 'Goods', busy: 'Busy %', trips: 'Trips', dist: 'Distance' })
     + chart(pts, { kind: ST.trMetric === 'busy' ? 'line' : 'bar', unit: ST.trMetric === 'busy' ? '%' : '', max: ST.trMetric === 'busy' ? 100 : undefined, title: names[ST.trMetric] })
     + (h ? `<h4 class="sh">Trips yesterday by job</h4>` + hbars([
-      { label: '🏗️ Construction', v: h.trips.con }, { label: '🛒 Supply', v: h.trips.sup }, { label: '📥 Collection', v: h.trips.col }]) : '')
+      { label: '🏗️ Construction', v: h.trips.con }, { label: '🛒 Supply', v: h.trips.sup }, { label: '📥 Collection', v: h.trips.col }, { label: '🛣️ Route legs', v: h.trips.route || 0 }]) : '')
     + `<h4 class="sh">Hubs</h4><table class="stable"><thead><tr><th>Hub</th><th>Busy</th><th>Full</th><th>Priority</th></tr></thead><tbody>${hubs}</tbody></table>
       <p class="note">${TRUCK.names.join(' → ')}: upgrading a hub upgrades its trucks (faster, bigger, cleaner).</p>`;
 }

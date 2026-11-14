@@ -4,11 +4,12 @@ import { TERRAIN, ZONES, BUILDINGS } from './config.js';
 import { toWorld, hexPath, SIZE, DIRS, hash2, key, fromWorld, hexDist } from './hex.js';
 import { Y_SCALE, H_SCALE, getSprite, resetBudget } from './stack.js';
 import { MODELS } from './models.js';
-import { isConnected } from './logistics.js';
+import { isConnected, legPath } from './logistics.js';
 
 export const V = {
   cx: 0, cy: 30, zoom: 1.7, angle: -0.35, W: 1, H: 1, dpr: 1,
   overlay: null, hover: null, selected: null, preview: [], previewOk: true, range: null,
+  routes: [], // ids of player routes drawn on the map
 };
 let cv, ctx, ground = null;
 const particles = [];
@@ -134,6 +135,7 @@ function drawOverlays(m) {
     }
     ctx.fillStyle = color; ctx.globalAlpha = 0.16; ctx.fill(p); ctx.globalAlpha = 1;
   }
+  drawRouteLines();
   const hl = (t, col, w = 2.5) => { const p = new Path2D(); const { x, y } = toWorld(t.q, t.r); hexPath(p, x, y, SIZE - 1); ctx.lineWidth = w; ctx.strokeStyle = col; ctx.stroke(p); return p; };
   if (V.preview.length) {
     const p = new Path2D();
@@ -212,6 +214,52 @@ export function frame(dt) {
   }
   drawParticles(dt, m);
   drawIndicators(objs, Z);
+  drawRouteStops(m, Z);
+}
+
+// ---------- player routes ----------
+const routeCache = new Map(); // route id -> { sig, legs: [[{x,y}]] }
+function routeLegs(r) {
+  const sig = r.stops.map((s) => s.b).join(',') + '|' + C.fieldsGen;
+  const c = routeCache.get(r.id);
+  if (c && c.sig === sig) return c.legs;
+  const hub = S.buildings[r.hub], legs = [];
+  const bs = r.stops.map((s) => S.buildings[s.b]).filter(Boolean);
+  if (hub && bs.length >= 2) for (let i = 0; i < bs.length; i++) { const p = legPath(hub, bs[i], bs[(i + 1) % bs.length]); if (p) legs.push(p); }
+  routeCache.set(r.id, { sig, legs });
+  return legs;
+}
+function drawRouteLines() {
+  if (!V.routes.length) return;
+  const w = 3.2 / V.zoom, t = performance.now() / 60;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  V.routes.forEach((id, k) => {
+    const r = S.routes.find((x) => x.id === id); if (!r) return;
+    const off = (k - (V.routes.length - 1) / 2) * w * 1.6; // side by side when routes share a road
+    const p = new Path2D();
+    for (const leg of routeLegs(r)) leg.forEach((q, i) => (i ? p.lineTo(q.x + off, q.y + off) : p.moveTo(q.x + off, q.y + off)));
+    ctx.lineWidth = w + 2 / V.zoom; ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.setLineDash([]); ctx.stroke(p);
+    ctx.lineWidth = w; ctx.strokeStyle = r.color; ctx.setLineDash([9 / V.zoom, 6 / V.zoom]); ctx.lineDashOffset = -t / V.zoom; ctx.stroke(p);
+  });
+  ctx.setLineDash([]); ctx.lineDashOffset = 0;
+}
+function drawRouteStops(m, Z) {
+  if (!V.routes.length) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const rad = Math.max(9, 8 * Z);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = `700 ${Math.round(rad * 1.1)}px system-ui, sans-serif`;
+  for (const id of V.routes) {
+    const r = S.routes.find((x) => x.id === id); if (!r) continue;
+    const seen = {};
+    r.stops.forEach((st, i) => {
+      const b = S.buildings[st.b]; if (!b) return;
+      const { x, y } = toWorld(b.q, b.r), n = seen[b.id] = (seen[b.id] || 0) + 1; // a building visited twice gets two badges
+      const sx = m[0] * x + m[2] * y + m[4] + (n - 1) * rad * 2.1, sy = m[1] * x + m[3] * y + m[5] - 22 * Z;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(sx, sy, rad + 2, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = r.color; ctx.beginPath(); ctx.arc(sx, sy, rad, 0, 6.2832); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillText(String(i + 1), sx, sy + 1);
+    });
+  }
 }
 
 // ---------- particles (smoke from polluting chimneys) ----------
@@ -265,6 +313,7 @@ function drawIndicators(objs, Z) {
     if (!isConnected(b)) icon = '🚧';
     else if (b.built && b.status === 'idle') icon = '❔';
     else if (b.built && b.status === 'noinput') icon = '⏳';
+    else if (b.built && b.status === 'nostaff') icon = '👷';
     else if (b.built && b.status === 'full' && Z > 0.8) icon = '📦';
     else if (b.built && b.type === 'house' && b.happy < 30) icon = '☹️';
     if (icon) {

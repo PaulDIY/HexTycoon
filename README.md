@@ -23,7 +23,7 @@ node test/bot.test.js    # 400-day balance run with a bot player (env: SEED, DAY
 |---|---|
 | 1. Zone | **Zones** menu: paint Residential, Commercial, Farmland, Forestry (forest), Mining (hills = stone, sand = clay) and Industry. Companies only move in on tiles **next to a road that reaches a Storage Hub**, and only when there's demand (the R/C/I bars at the top). |
 | 2. Build | New buildings and upgrades are **construction sites**. Trucks deliver wood, stone, planks or bricks from a hub. |
-| 3. Logistics | Trucks collect output from producers, supply factories and stores, and deliver **directly** from producer to consumer when that's shorter. On a hub you can buy or sell trucks and set a priority (Balanced / Construction / Supply / Collection). |
+| 3. Logistics | Trucks collect output from producers, supply factories and stores, and deliver **directly** from producer to consumer when that's shorter. On a hub you can buy or sell trucks and set a priority (Balanced / Construction / Supply / Collection). Choose which goods a hub stores (and how many), and create **routes**: tap buildings in order, pick what to load and unload at each stop and assign trucks. Trucks without a route keep working on their own. |
 | 4. Grow | Citizens need food, then clothes (level 2), then furniture (level 3), all bought at stores within walking range. Happy citizens pay more tax. Companies pay tax on what they produce. |
 | 5. Upgrade | Everything has **3 levels**: houses, stores, farms, mines, factories, hubs (and their trucks), parks and roads. Level 2 unlocks at 60 citizens, level 3 at 300. |
 | 6. Stay green | The ☁️ button in the header shows the pollution overlay. Parks and forests absorb pollution. Level-3 buildings and E-Trucks are close to emission-free. |

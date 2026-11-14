@@ -1,7 +1,7 @@
 // Player actions with validation. Each returns { ok, msg }.
 import { S, C, tileAt, neighbors, roadNeighbors, def, createBuilding, makeSite, addTruck, hubTrucks, emit } from './state.js';
-import { BUILDINGS, ZONES, ROAD, ZONE_COST, LEVEL_UNLOCK, COUNT_SCALE } from './config.js';
-import { cancelTrucksFor, cancelTruck, activeHubs } from './logistics.js';
+import { BUILDINGS, ZONES, ROAD, ZONE_COST, LEVEL_UNLOCK, COUNT_SCALE, GOODS } from './config.js';
+import { cancelTrucksFor, cancelTruck, activeHubs, access, computeFields } from './logistics.js';
 import { spend, pay, levelUnlocked, isUnlocked, computeStats } from './sim.js';
 
 const fail = (msg) => ({ ok: false, msg });
@@ -125,8 +125,9 @@ export function buyTruck(hub) {
 export function sellTruck(hub) {
   const ts = hubTrucks(hub.id);
   if (ts.length <= 0) return fail('No trucks');
-  const idle = ts.find((t) => !t.steps) || ts[ts.length - 1];
-  if (idle.steps) cancelTruck(idle);
+  // sell a free idle truck if possible, route trucks last
+  const idle = ts.find((t) => !t.route && !t.steps) || ts.find((t) => !t.route) || ts[ts.length - 1];
+  cancelTruck(idle);
   S.trucks.splice(S.trucks.indexOf(idle), 1);
   pay(Math.round(truckInfo(hub).cost * 0.3));
   return OK;
@@ -141,7 +142,9 @@ export function demolish(t) {
     cancelTrucksFor(b.id);
     if (b.type === 'hub') {
       for (const tr of S.trucks.filter((x) => x.hub === b.id)) S.trucks.splice(S.trucks.indexOf(tr), 1);
+      S.routes = S.routes.filter((r) => r.hub !== b.id);
     }
+    for (const r of S.routes) r.stops = r.stops.filter((st) => st.b !== b.id);
     if (d.player) pay(Math.round(d.cost[b.level - 1] * 0.3));
     delete S.buildings[b.id];
     t.b = null;
@@ -161,5 +164,87 @@ export function setExport(b, g, amt) {
   const d = def(b), max = d.maxExport[b.level - 1];
   if (g !== undefined) b.exp.g = g;
   if (amt !== undefined) b.exp.amt = Math.max(0, Math.min(max, Math.round(amt)));
+  return OK;
+}
+
+// ---------- depot rules ----------
+// hub.keep = null: free trucks bring any good (up to 35% of space each). { good: max }: only these goods, up to max.
+export const keepStep = (hub) => { const c = BUILDINGS.hub.cap[hub.level - 1]; return c >= 1000 ? 50 : c >= 400 ? 25 : 10; };
+export function setKeepMode(hub, pick) {
+  if (!pick) { hub.keep = null; return; }
+  // start from what is stored now, so switching modes doesn't strand goods
+  const def0 = keepStep(hub) * 4;
+  hub.keep = {};
+  for (const [g, n] of Object.entries(hub.inv)) if (n >= 1) hub.keep[g] = Math.max(def0, Math.ceil(n / keepStep(hub)) * keepStep(hub));
+}
+export function toggleKeep(hub, g) {
+  if (!hub.keep) hub.keep = {};
+  if (g in hub.keep) delete hub.keep[g]; else hub.keep[g] = keepStep(hub) * 4;
+}
+export function setKeepMax(hub, g, delta) {
+  if (!hub.keep || !(g in hub.keep)) return;
+  hub.keep[g] = Math.max(0, Math.min(BUILDINGS.hub.cap[hub.level - 1], hub.keep[g] + delta));
+}
+
+// ---------- player routes ----------
+const ROUTE_COLORS = ['#e8553a', '#2e86de', '#20a35a', '#9b59d0', '#e3a008', '#0fa3b1', '#d63384', '#6c7a89'];
+export const routeTrucks = (r) => S.trucks.filter((t) => t.route === r.id);
+export function createRoute(hub) {
+  if (!hub.built) return fail('Hub not finished');
+  const n = S.routes.filter((r) => r.hub === hub.id).length;
+  const r = { id: 'r' + S.nextId++, hub: hub.id, name: `Route ${n + 1}`, color: ROUTE_COLORS[S.routes.length % ROUTE_COLORS.length], stops: [], moved: 0, lastMoved: 0 };
+  S.routes.push(r);
+  return { ok: true, r };
+}
+export function deleteRoute(r) {
+  for (const t of routeTrucks(r)) unassign(t);
+  S.routes.splice(S.routes.indexOf(r), 1);
+  return OK;
+}
+function unassign(t) { cancelTruck(t); t.route = null; t.rs = 0; }
+
+// what a truck can load / unload at building b (hub: '*' unloads everything it carries)
+export function stopOptions(b) {
+  const d = def(b), L = b.level - 1;
+  if (b.site && !b.built) return { load: [], unload: Object.keys(b.site.need) };
+  if (d.kind === 'producer') return { load: [d.out], unload: [] };
+  if (d.kind === 'processor') return { load: Object.keys(d.recipe.out), unload: Object.keys(d.recipe.in) };
+  if (d.kind === 'store') return { load: [], unload: d.sells[L] };
+  if (d.kind === 'harbor') return { load: [], unload: b.exp && b.exp.g ? [b.exp.g] : [] };
+  if (d.kind === 'hub') return { load: Object.keys(GOODS), unload: ['*'] };
+  return { load: [], unload: [] };
+}
+export function addStop(r, b) {
+  if (!b) return fail('Tap a building to add a stop');
+  const hub = S.buildings[r.hub];
+  const o = stopOptions(b);
+  if (!o.load.length && !o.unload.length) return fail(def(b).kind === 'house' ? 'Houses shop at stores: add the store instead' : 'Nothing to load or unload here');
+  if (C.fieldsDirty) computeFields();
+  if (b !== hub && !access(hub.id, b)) return fail('No road from this route\'s hub to here');
+  const last = r.stops[r.stops.length - 1];
+  if (last && last.b === b.id) return fail('Already the last stop');
+  // sensible defaults: load what it makes, unload what it uses; a hub takes everything, loads nothing until you pick
+  r.stops.push({ b: b.id, load: def(b).kind === 'hub' ? [] : o.load.slice(), unload: o.unload.slice(), full: false });
+  return OK;
+}
+export function removeStop(r, i) {
+  r.stops.splice(i, 1);
+  for (const t of routeTrucks(r)) if (t.rs > i) t.rs--; else if (t.rs >= r.stops.length) t.rs = 0;
+  return OK;
+}
+export function toggleStopGood(r, i, way, g) {
+  const st = r.stops[i]; if (!st) return OK;
+  const list = st[way], k = list.indexOf(g);
+  if (k >= 0) list.splice(k, 1); else list.push(g);
+  return OK;
+}
+export function toggleStopFull(r, i) { const st = r.stops[i]; if (st) st.full = !st.full; return OK; }
+// +1: take a free truck of the hub (idle first), buy one if none is free; -1: release the last one
+export function routeTruckDelta(r, delta) {
+  const hub = S.buildings[r.hub];
+  if (delta < 0) { const ts = routeTrucks(r); if (!ts.length) return fail('No trucks on this route'); unassign(ts[ts.length - 1]); return OK; }
+  let t = hubTrucks(hub.id).filter((x) => !x.route).sort((a, b) => !!a.steps - !!b.steps)[0];
+  if (!t) { const res = buyTruck(hub); if (!res.ok) return fail(res.msg === 'Truck slots full — upgrade the hub' ? 'No free truck and no free slot: upgrade the hub' : res.msg); t = hubTrucks(hub.id).at(-1); }
+  t.route = r.id; t.rs = 0; t.hold = t.hold || {}; t.at = t.at || hub.id; t.loop0 = undefined;
   return OK;
 }

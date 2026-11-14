@@ -35,6 +35,7 @@ export function computeFields() {
     C.fields[hub.id] = { dist, parent };
   }
   C.fieldsDirty = false;
+  C.fieldsGen = (C.fieldsGen || 0) + 1; // invalidates cached route lines
 }
 
 // best road tile next to building b reachable from hub field
@@ -128,7 +129,30 @@ export function producerOutputs(b) {
 }
 
 // ---------- dispatch ----------
-function findJob(truck, hub) {
+// How many more units of g this hub's own trucks may bring in. Without rules: up to 35% of capacity per good.
+// With depot rules (hub.keep = { good: max }) only the listed goods, each up to its max.
+export function hubRoomFor(hub, g) {
+  const have = (hub.inv[g] || 0) + (hub.incoming[g] || 0);
+  const lim = hub.keep ? (hub.keep[g] || 0) : BUILDINGS.hub.cap[hub.level - 1] * 0.35;
+  return Math.min(lim - have, hubFree(hub));
+}
+
+// building → goods its route stops load / unload; free trucks leave those links to the routes
+function routeCover() {
+  const cov = {};
+  for (const r of S.routes || []) {
+    if (!S.trucks.some((t) => t.route === r.id)) continue; // a route without trucks covers nothing
+    for (const st of r.stops) {
+      const c = cov[st.b] || (cov[st.b] = { load: new Set(), unload: new Set() });
+      for (const g of st.load) c.load.add(g);
+      for (const g of st.unload) c.unload.add(g);
+    }
+  }
+  return cov;
+}
+const covers = (cov, b, way, g) => { const c = cov[b.id]; return !!c && (c[way].has(g) || c[way].has('*')); };
+
+function findJob(truck, hub, cov) {
   const lvl = hub.level - 1, cap = TRUCK.cap[lvl], W = PRIORITIES[hub.priority] || PRIORITIES.balanced;
   const hubs = activeHubs();
   let best = null;
@@ -137,6 +161,7 @@ function findJob(truck, hub) {
   const outs = {};
   for (const p of Object.values(S.buildings)) {
     for (const g of producerOutputs(p)) {
+      if (covers(cov, p, 'load', g)) continue;
       const a = Math.floor(avail(p, g));
       if (a < 2) continue;
       const acc = access(hub.id, p); if (!acc) continue;
@@ -180,6 +205,7 @@ function findJob(truck, hub) {
     }
     // supply consumers
     for (const [g, want] of consumerWants(b)) {
+      if (covers(cov, b, 'unload', g)) continue;
       const src = source(g, b, accHB); if (!src) continue;
       const amt = Math.min(Math.floor(want), Math.floor(avail(src.h, g)), cap);
       if (amt < 1) continue;
@@ -188,12 +214,11 @@ function findJob(truck, hub) {
     // collect outputs
     const d = def(b);
     for (const g of producerOutputs(b)) {
+      if (covers(cov, b, 'load', g)) continue;
       const have = Math.floor(avail(b, g)), bufCap = d.buf[b.level - 1];
       const thresh = Math.min(cap, Math.ceil(bufCap * 0.4));
       if (have < thresh && !(have > 0 && have >= bufCap - 1)) continue;
-      const free = Math.floor(hubFree(hub));
-      const perGood = Math.floor(BUILDINGS.hub.cap[hub.level - 1] * 0.35 - (hub.inv[g] || 0) - (hub.incoming[g] || 0));
-      const amt = Math.min(have, cap, free, perGood);
+      const amt = Math.min(have, cap, Math.floor(hubRoomFor(hub, g)));
       if (amt < 1) continue;
       consider(W.col * (0.5 + amt / cap) / (2 * accHB.d + 3), { kind: 'col', b, g, amt });
     }
@@ -238,8 +263,10 @@ export function cancelTruck(truck) {
     if (st.a === 'unload') { const t = S.buildings[st.to]; if (t) add(t.incoming, st.g, -st.amt); }
     if (st.a === 'build') { const t = S.buildings[st.to]; if (t && t.site) add(t.site.incoming, st.g, -st.amt); }
   }
-  if (truck.cargo) { const h = S.buildings[truck.hub]; if (h) add(h.inv, truck.cargo.g, truck.cargo.amt); }
-  truck.steps = null; truck.cargo = null; truck.job = null;
+  const h = S.buildings[truck.hub];
+  if (truck.cargo && h) add(h.inv, truck.cargo.g, truck.cargo.amt);
+  if (truck.hold && h) for (const [g, n] of Object.entries(truck.hold)) add(h.inv, g, n); // route cargo goes back to the depot
+  truck.steps = null; truck.cargo = null; truck.job = null; truck.hold = {}; truck.at = truck.hub;
 }
 
 export function cancelTrucksFor(bid) {
@@ -266,11 +293,13 @@ export function tickLogistics(dt) {
   dispatchT -= dt;
   if (dispatchT <= 0) {
     dispatchT = 0.4;
+    const cov = routeCover();
     for (const tr of S.trucks) {
       if (tr.steps) continue;
       const hub = S.buildings[tr.hub];
       if (!hub || !hub.built || !C.fields[hub.id]) continue;
-      const job = findJob(tr, hub);
+      if (tr.route) { const r = S.routes.find((x) => x.id === tr.route); if (r) { routeLeg(tr, hub, r); continue; } tr.route = null; }
+      const job = findJob(tr, hub, cov);
       if (job) assign(tr, hub, job);
     }
   }
@@ -301,6 +330,7 @@ function stepTruck(tr, dt) {
     return;
   }
   if (tr.wait > 0) { tr.wait -= dt; return; }
+  if (st.a === 'stop') { if (routeStop(tr, st)) { tr.steps = null; tr.job = null; } return; }
   if (st.a === 'load') {
     const f = S.buildings[st.from];
     if (!f) { cancelTruck(tr); return; }
@@ -320,5 +350,72 @@ function stepTruck(tr, dt) {
     tr.cargo = null;
   }
   tr.si++; tr.pi = 0; tr.seg = 0;
-  if (tr.si >= tr.steps.length) { tr.steps = null; tr.job = null; }
+  if (tr.si >= tr.steps.length) { tr.steps = null; tr.job = null; tr.at = tr.hub; } // free jobs end at the depot
+}
+
+// ---------- player routes ----------
+// A route is a loop of stops run by the trucks assigned to it. Each stop names goods to unload and to load there.
+// The truck drives stop to stop on the hub's road network; free trucks leave those links alone (see routeCover).
+const holdTotal = (tr) => Object.values(tr.hold || {}).reduce((a, v) => a + v, 0);
+
+// road path between two buildings, as world points (null if not connected to the hub's network)
+export function legPath(hub, from, to) {
+  const a = access(hub.id, from), b = access(hub.id, to);
+  if (!a || !b) return null;
+  const mid = roadPath(a.k, b.k);
+  if (!mid) return null;
+  return [{ ...centre(from), k: null }, ...pts(mid), { ...centre(to), k: null }];
+}
+
+function routeLeg(tr, hub, r) {
+  if (!r.stops.length) return;
+  if (!tr.hold) tr.hold = {};
+  if (!(tr.rs < r.stops.length)) tr.rs = 0;
+  const stop = r.stops[tr.rs], to = S.buildings[stop.b], from = S.buildings[tr.at] || hub;
+  const path = to && legPath(hub, from, to);
+  if (!path) { tr.rs = (tr.rs + 1) % r.stops.length; return; } // gone or cut off: skip it
+  tr.steps = [{ a: 'move', path }, { a: 'stop', r: r.id, i: tr.rs }];
+  tr.si = 0; tr.pi = 0; tr.seg = 0; tr.wait = 0; tr.job = 'route';
+  const p0 = centre(from); tr.x = p0.x; tr.y = p0.y;
+  if (C.day.trips.route === undefined) C.day.trips.route = 0;
+  C.day.trips.route++;
+}
+
+// room for g at b when a route truck unloads there
+export function unloadRoom(b, g) {
+  const d = def(b), L = b.level - 1;
+  if (b.site) return Math.max(0, (b.site.need[g] || 0) - (b.site.got[g] || 0) - (b.site.incoming[g] || 0));
+  if (!b.built) return 0;
+  if (d.kind === 'hub') return Math.max(0, hubFree(b));
+  if (d.kind === 'store') return d.sells[L].includes(g) ? Math.max(0, Math.floor(d.stock[L] / d.sells[L].length) - (b.inv[g] || 0)) : 0;
+  if (d.kind === 'processor') return d.recipe.in[g] ? Math.max(0, d.recipe.in[g] * 8 - (b.inv[g] || 0)) : 0;
+  if (d.kind === 'harbor') return b.exp && b.exp.g === g ? Math.max(0, d.stock[L] - (b.inv[g] || 0)) : 0;
+  return 0;
+}
+
+// unload, then load; returns false while waiting for a full load
+function routeStop(tr, st) {
+  const r = S.routes.find((x) => x.id === st.r), stop = r && r.stops[st.i], b = stop && S.buildings[stop.b];
+  const hub = S.buildings[tr.hub], cap = TRUCK.cap[hub.level - 1];
+  if (b) {
+    for (const [g, n] of Object.entries(tr.hold)) {
+      if (!stop.unload.includes(g) && !stop.unload.includes('*')) continue;
+      const amt = Math.min(n, Math.floor(unloadRoom(b, g)));
+      if (amt < 1) continue;
+      add(tr.hold, g, -amt);
+      if (b.site) { add(b.site.got, g, amt); C.day.use[g] = (C.day.use[g] || 0) + amt; } else add(b.inv, g, amt);
+      emit('delivered', { b: b.id, g, amt }); C.day.moved += amt; r.moved = (r.moved || 0) + amt;
+    }
+    for (const g of stop.load) {
+      const amt = Math.min(Math.floor(avail(b, g)), cap - holdTotal(tr));
+      if (amt >= 1) { add(b.inv, g, -amt); add(tr.hold, g, amt); }
+    }
+    // wait for a full load (at most 2 days, so a dry source can't block the route forever)
+    if (stop.full && stop.load.length && holdTotal(tr) < cap && (tr.waited || 0) < 2 * DAY) { tr.wait = 0.5; tr.waited = (tr.waited || 0) + 0.5; return false; }
+    tr.at = b.id;
+  }
+  tr.waited = 0;
+  tr.rs = (st.i + 1) % Math.max(1, r ? r.stops.length : 1);
+  if (r && tr.rs === 0) { if (tr.loop0 !== undefined) r.loopT = (S.time - tr.loop0) / DAY; tr.loop0 = S.time; }
+  return true;
 }

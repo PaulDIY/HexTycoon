@@ -56,6 +56,7 @@ export function initUI() {
   $('btn-goal').addEventListener('click', showGoals);
   $('hud-money').addEventListener('click', showFinance);
   $('hud-pop').addEventListener('click', showJobs);
+  window.addEventListener('hv-tool', (e) => setTool(e.detail));
   $('goalbar').addEventListener('click', showGoals);
   initStats();
   $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
@@ -136,6 +137,7 @@ function applyTile(t) {
 function previewOk(t) {
   const tool = UI.tool;
   if (!t) return false;
+  if (tool.kind === 'route') return !!bAt(t);
   if (tool.kind === 'zone') return A.canZone(t, tool.zone).ok || (t.zone === tool.zone);
   if (tool.kind === 'road') return A.canRoad(t, tool.level).ok || t.road >= tool.level;
   if (tool.kind === 'build') return A.canPlace(tool.type, t).ok;
@@ -149,6 +151,11 @@ export const mapHandlers = {
   hover(t) { V.hover = t; if (t && UI.tool.kind !== 'select' && !UI.stroke.length) { V.preview = [t]; V.previewOk = previewOk(t); } else if (!UI.stroke.length) V.preview = []; },
   tap(t) {
     if (UI.tool.kind === 'select') { select(t); return; }
+    if (UI.tool.kind === 'route') {
+      const r = S.routes.find((x) => x.id === UI.tool.rid), res = r ? A.addStop(r, bAt(t)) : { ok: false };
+      if (!res.ok && res.msg) toast(res.msg, 'err');
+      UI.inspDirty = true; return;
+    }
     const r = applyTile(t);
     if (!r.ok && r.msg) toast(r.msg, 'err');
     if (r.ok && UI.tool.kind === 'build') { V.selected = r.b.id; setTool({ kind: 'select' }); toast(`🏗️ ${BUILDINGS[r.b.type].names[0]} placed — trucks will bring materials`); }
@@ -282,6 +289,7 @@ export const HELP = `
 <li><b>Zones</b> (left menu): paint areas for homes, shops, farms, forestry, mining and industry. Companies move in on their own, but only on tiles <b>next to a road</b>.</li>
 <li><b>Construction</b>: every new building and upgrade needs materials. Your trucks bring them from a <b>Storage Hub</b>.</li>
 <li><b>Logistics</b>: trucks collect goods from producers, supply factories and stores, and deliver straight from producer to consumer when they can. Buy more trucks and set priorities on a hub.</li>
+<li><b>Routes</b>: on a hub, choose which goods it stores and create routes: tap buildings in order, pick what to load ⬆ and unload ⬇ at each stop, and assign trucks. Trucks without a route keep driving on their own.</li>
 <li><b>Citizens</b> buy food (later clothes and furniture) at stores within walking range. Happy citizens pay more taxes. Companies pay taxes on what they produce.</li>
 <li><b>Eco score</b>: industry and trucks pollute. Forests and parks absorb it. Level 3 upgrades are much cleaner.</li>
 <li><b>Upgrades</b>: select anything and upgrade it up to level 3. Level 2 unlocks at 60 citizens, level 3 at 300.</li>
