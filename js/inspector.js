@@ -1,9 +1,10 @@
 // Bottom-sheet property inspector: selected building, tile, active tool or fleet overview. Tap the header to minimise it.
 import { S, C, def, tileAt, hubTrucks } from './state.js';
 import { BUILDINGS, ZONES, GOODS, ROAD, TERRAIN, TRUCK, PRIORITIES, LEVEL_UNLOCK, ZONE_COST, NEED_RATE } from './config.js';
+import { hexDist } from './hex.js';
 import { V } from './render.js';
 import * as A from './actions.js';
-import { isUnlocked, levelUnlocked, marketFactor } from './sim.js';
+import { isUnlocked, levelUnlocked, marketFactor, efficiency, terrainBonus, storesInRange } from './sim.js';
 import { activeHubs, isConnected, hubFree } from './logistics.js';
 import { key } from './hex.js';
 
@@ -112,7 +113,7 @@ function tile(t) {
 }
 
 // ---------- building ----------
-const STATUS = { ok: ['✅', 'Working'], full: ['📦', 'Storage full'], noinput: ['⏳', 'Waiting for input'], idle: ['❔', 'Choose a good'] };
+const STATUS = { ok: ['✅', 'Working'], full: ['📦', 'Storage full'], noinput: ['⏳', 'Waiting for input'], idle: ['❔', 'Choose a good'], nostaff: ['👷', 'No workers'] };
 const status = (b) => { const s = STATUS[b.status]; return s ? `<span class="sub">${s[0]} ${s[1]}</span>` : ''; };
 function building(b) {
   const d = def(b), L = b.level - 1;
@@ -121,6 +122,7 @@ function building(b) {
   if (d.desc) h += xtra(`<p class="note">${d.desc}</p>`);
   if (!isConnected(b)) h += `<div class="warnbox">🚧 No road to a Storage Hub</div>`;
   if (b.site) h += siteSec(b);
+  if (b.built) h += staffWarn(b, d, L);
   if (b.built) {
     if (d.kind === 'house') h += houseSec(b, d, L);
     else if (d.kind === 'store') h += storeSec(b, d, L);
@@ -148,30 +150,109 @@ function siteSec(b) {
     ${short.length ? `<div class="warnbox">None in stock: ${short.join(', ')}</div>` : ''}</div>`;
 }
 
+// ---------- workers ----------
+const per = (n) => (n >= 10 ? fmt(n) : (Math.round(n * 10) / 10).toString());
+const jobs = (d, L) => (d.workers ? d.workers[L] : 0);
+const staffKv = (b, d, L) => jobs(d, L) ? kv('👷', `${b.staff || 0}/${jobs(d, L)}`, 'Workers / jobs', (b.staff || 0) < jobs(d, L) ? 'bad' : '') : '';
+function staffWarn(b, d, L) {
+  const need = jobs(d, L), have = b.staff || 0;
+  if (!need || have >= need || d.kind === 'hub') return '';
+  const why = 'Every citizen already works somewhere: zone more houses. Hubs and stores get workers first, then companies oldest first.';
+  if (!have) return `<div class="warnbox">👷 No workers (0/${need}): ${d.kind === 'store' ? 'closed, sells nothing' : 'produces nothing'}.</div>` + xtra(`<p class="note">${why}</p>`);
+  return `<div class="warnbox">👷 ${have} of ${need} workers: ${d.kind === 'store' ? 'short-staffed' : `runs at ${Math.round(have / need * 100)}% speed`}.</div>` + xtra(`<p class="note">${why}</p>`);
+}
+
+// ---------- houses ----------
 function houseSec(b, d, L) {
-  const needs = d.needs[L].map((g) => { const v = b.sat[g] ?? 0.6; return chip(g, Math.round(v * 100) + '%', v < 0.4 ? 'miss' : ''); }).join(' ');
-  const stores = (C.storesNear[b.id] || []).length;
-  return kvs(kv('👥', `${b.residents}/${d.cap[L]}`, 'Citizens'), kv(b.happy < 35 ? '☹️' : '🙂', Math.round(b.happy) + '%', 'Happiness', b.happy < 35 ? 'bad' : ''),
+  const stores = storesInRange(b).filter((s) => s.staff);
+  const rows = d.needs[L].map((g) => {
+    const v = b.sat[g] ?? 0.6, sellers = stores.filter((s) => BUILDINGS.store.sells[s.level - 1].includes(g));
+    const stock = sellers.reduce((a, s) => a + (s.inv[g] || 0), 0);
+    const where = !sellers.length ? '<span class="bad">not sold nearby</span>' : `${fmt(stock)} in ${sellers.length} 🏪`;
+    return `<span>${GOODS[g].icon} ${GOODS[g].name}</span><span class="n">${per(b.residents * NEED_RATE[g])}/d</span>
+      <span class="sup">${bar(v, v < 0.4 ? 'warn' : '')}<small class="${v < 0.4 ? 'bad' : ''}">${Math.round(v * 100)}%</small></span><span class="n">${where}</span>`;
+  }).join('');
+  // happiness = 32 + goods·48 + (eco−50)·¼ − local pollution·6 − unemployment·30  (see sim.js tickHouse)
+  const sat = d.needs[L].reduce((a, g) => a + (b.sat[g] ?? 0.6), 0) / d.needs[L].length;
+  const lp = C.poll.get(key(b.q, b.r)) || 0, st = C.stats;
+  const unemp = st && st.pop > 0 ? st.unemployed / st.pop : 0;
+  const sgn = (n) => (n >= 0 ? '+' : '−') + Math.abs(Math.round(n));
+  const parts = [`goods ${sgn(sat * 48)}`, `eco ${sgn(((C.eco ?? 100) - 50) * 0.25)}`];
+  if (lp > 0.05) parts.push(`smog ${sgn(-lp * 6)}`);
+  if (unemp > 0.01) parts.push(`no work ${sgn(-unemp * 30)}`);
+  let grow;
+  if (b.happy < 25) grow = '<div class="warnbox">😠 Unhappy: residents are moving out</div>';
+  else if (b.residents >= d.cap[L]) grow = `<p class="note">🏠 Full.${b.level < 3 ? ' Upgrade for more room.' : ''}</p>`;
+  else if (b.happy < 45) grow = '<div class="warnbox">Not growing: happiness must be at least 45%</div>';
+  else if (st && st.demandR <= 0) grow = `<div class="warnbox">Not growing: no free jobs (${fmt(st.pop)} citizens, ${fmt(st.jobs)} jobs). New companies bring jobs.</div>`;
+  else grow = '<p class="note">📈 Growing: new residents move in</p>';
+  return kvs(kv('👥', `${b.residents}/${d.cap[L]}`, 'Residents / room'), kv(b.happy < 35 ? '☹️' : '🙂', Math.round(b.happy) + '%', 'Happiness', b.happy < 35 ? 'bad' : ''),
       kv('💰', '$' + (b.residents * d.tax[L] * b.happy / 100).toFixed(1) + '/d', 'Taxes'))
-    + `<div class="chips">${needs}</div>` + (stores ? '' : '<div class="warnbox">No store within walking range</div>');
+    + `<div class="sec wide"><h4>Needs</h4><div class="gtab g4"><small>Good</small><small class="n">Uses</small><small>Supplied</small><small class="n">Nearby</small>${rows}</div></div>`
+    + grow + xtra(`<p class="note">Map: <b style="color:#2ec4ff">blue</b> stores are in walking range${storesInRange(b).some((s) => !s.staff) ? ', <b style="color:#e64632">red</b> ones are closed (no workers)' : ''}.</p><p class="note">🙂 ${Math.round(b.happy)}% = 32 ${parts.join(' ')}${stores.length ? '' : ' · No open store in walking range'}</p>`);
 }
+
+// ---------- stores ----------
 function storeSec(b, d, L) {
-  const per = Math.floor(d.stock[L] / d.sells[L].length);
-  const stock = d.sells[L].map((g) => chip(g, `${fmt(b.inv[g] || 0)}/${per}${(b.incoming[g] || 0) > 0 ? ' 🚚' : ''}`, (b.inv[g] || 0) < 2 ? 'miss' : '')).join(' ');
-  return `<div class="chips">${stock}</div>` + xtra(kvs(kv('🚶', d.range[L] + ' tiles', 'Walking range'), kv('👷', d.workers[L], 'Jobs')));
+  const sells = d.sells[L], cap = Math.floor(d.stock[L] / sells.length), range = d.range[L];
+  const houses = Object.values(S.buildings).filter((h) => h.built && h.type === 'house' && hexDist(h.q, h.r, b.q, b.r) <= range);
+  const people = houses.reduce((a, h) => a + h.residents, 0);
+  const rows = sells.map((g) => {
+    let demand = 0, share = 0; // share: this store's part when a house can shop at several stores
+    for (const h of houses) {
+      if (!BUILDINGS.house.needs[h.level - 1].includes(g)) continue;
+      const n = h.residents * NEED_RATE[g];
+      const others = storesInRange(h).filter((s) => s.staff && BUILDINGS.store.sells[s.level - 1].includes(g)).length;
+      demand += n; share += n / Math.max(1, others);
+    }
+    const have = b.inv[g] || 0, inc = (b.incoming[g] || 0) > 0;
+    const lasts = share > 0 ? (have / share < 1 ? '<span class="bad">&lt;1 d</span>' : per(have / share) + ' d') : '—';
+    return `<span>${GOODS[g].icon} ${GOODS[g].name}</span><span class="n ${have < 2 ? 'bad' : ''}">${fmt(have)}/${cap}${inc ? ' 🚚' : ''}</span>
+      <span class="n">${per(share)}${demand > share + 0.05 ? `<small> of ${per(demand)}</small>` : ''}/d</span><span class="n">${lasts}</span>`;
+  }).join('');
+  const missing = {};
+  for (const h of houses) for (const g of BUILDINGS.house.needs[h.level - 1]) if (!sells.includes(g)) missing[g] = (missing[g] || 0) + 1;
+  const miss = Object.entries(missing).map(([g, n]) => `${n} house${n > 1 ? 's' : ''} also need ${GOODS[g].icon} ${GOODS[g].name}`);
+  return kvs(kv('🏠', houses.length, 'Houses in walking range'), kv('👥', fmt(people), 'Citizens supplied'), kv('🚶', range, 'Walking range (tiles)'), staffKv(b, d, L))
+    + `<div class="sec wide"><h4>Stock &amp; sales</h4><div class="gtab g4"><small>Good</small><small class="n">Stock</small><small class="n">Sells</small><small class="n">Lasts</small>${rows}</div></div>`
+    + (miss.length ? `<p class="note">⚠️ ${miss.join(' · ')}: ${b.level < 3 ? 'upgrade this store or ' : ''}build a bigger store nearby.</p>` : '')
+    + xtra(`<p class="note">Map: <b style="color:#2ec4ff">blue</b> houses get all they need here, <b style="color:#ffb020">amber</b> only some. “Sells” is this store's share when houses can shop at several stores.</p>`)
+    + (houses.length ? '' : '<div class="warnbox">No houses in walking range</div>');
 }
+
+// ---------- production: input ➜ recipe ➜ output ----------
+const flow = (inp, mid, out) => `<div class="flow"><div><h4>Input</h4>${inp}</div><div class="mid"><h4>Recipe</h4>${mid}</div><div><h4>Output</h4>${out}</div></div>`;
+// output per day right now (0 while stopped) and the speed factors behind it
+function speed(b, d, L) {
+  const e = efficiency(b), base = d.rate[L], now = b.status === 'ok' ? base * e : 0;
+  const why = [];
+  if ((b.staff || 0) < jobs(d, L)) why.push(`👷 ${Math.round((b.staff || 0) / jobs(d, L) * 100)}%`);
+  const tb = terrainBonus(b); if (tb !== 1) why.push(`${d.bonus === 'forest' ? '🌲' : '🌱'} ×${tb.toFixed(2).replace(/0$/, '')}`);
+  return { now, base, why };
+}
+const rateLine = (sp, unit) => `<small class="${sp.now < sp.base * 0.5 ? 'bad' : ''}">${per(sp.now)}${sp.now !== sp.base ? ` of ${sp.base}` : ''}${unit}/day</small>${sp.why.length ? `<small> ${sp.why.join(' ')}</small>` : ''}`;
+const outChip = (g, have, cap) => `<div class="chips">${chip(g, `${fmt(have)}/${cap}`, have >= cap ? 'miss' : '')}</div>${bar(have / cap, have >= cap ? 'warn' : '')}`;
+
 function producerSec(b, d, L) {
-  const have = b.inv[d.out] || 0, t = tileAt(b.q, b.r);
-  let bonus = '';
-  if (d.bonus === 'fertile' && t.terrain === 'fertile') bonus = kv('🌱', '+30%', 'Fertile soil bonus');
-  return kvs(kv(GOODS[d.out].icon, d.rate[L] + '/d', 'Output per day'), kv('📦', `${fmt(have)}/${d.buf[L]}`, 'Stored, waiting for pickup', have >= d.buf[L] ? 'bad' : ''), bonus,
-    xtra(kv('👷', d.workers[L], 'Jobs')));
+  const have = b.inv[d.out] || 0, t = tileAt(b.q, b.r), sp = speed(b, d, L);
+  let src = `<div class="chips"><span class="chip">${TERRAIN[t.terrain].name}</span></div>`;
+  if (d.bonus === 'fertile') src += `<small>${t.terrain === 'fertile' ? '🌱 fertile +30%' : 'fertile soil +30%'}</small>`;
+  if (d.bonus === 'forest') src += `<small>🌲 forest nearby ×${terrainBonus(b).toFixed(1)}</small>`;
+  return flow(src, `<div class="rec">➜ 1 ${GOODS[d.out].icon}</div>${rateLine(sp, '')}`,
+      outChip(d.out, have, d.buf[L]) + `<small>${have >= d.buf[L] ? 'full: waiting for trucks' : 'trucks collect'}</small>`)
+    + kvs(staffKv(b, d, L));
 }
 function processorSec(b, d, L) {
-  const r = d.recipe;
-  const io = (o, isIn) => Object.entries(o).map(([g, n]) => chip(g, `${fmt(b.inv[g] || 0)}`, isIn && (b.inv[g] || 0) < n ? 'miss' : '')).join(' ');
-  return `<div class="chips">${io(r.in, true)} <span class="arrow">➜ ${Object.entries(r.out).map(([g, n]) => GOODS[g].icon + n).join(' ')} ×${d.rate[L]}/d ➜</span> ${io(r.out, false)}</div>`
-    + xtra(kvs(kv('👷', d.workers[L], 'Jobs')));
+  const r = d.recipe, sp = speed(b, d, L), cyc = sp.now;
+  const ins = Object.entries(r.in).map(([g, n]) => chip(g, fmt(b.inv[g] || 0) + ((b.incoming[g] || 0) > 0 ? ' 🚚' : ''), (b.inv[g] || 0) < n ? 'miss' : '')).join(' ');
+  const use = Object.entries(r.in).map(([g, n]) => `${GOODS[g].icon}${per(n * (cyc || sp.base))}`).join(' ');
+  const outT = Object.keys(r.out).reduce((a, g) => a + (b.inv[g] || 0), 0);
+  const outs = Object.keys(r.out).map((g) => chip(g, `${fmt(b.inv[g] || 0)}/${d.buf[L]}`, outT >= d.buf[L] ? 'miss' : '')).join(' ');
+  const recipe = `${Object.entries(r.in).map(([g, n]) => n + GOODS[g].icon).join(' + ')} ➜ ${Object.entries(r.out).map(([g, n]) => n + GOODS[g].icon).join(' + ')}`;
+  return flow(`<div class="chips">${ins}</div><small>${cyc ? 'uses' : 'needs'} ${use}/day</small>`,
+      `<div class="rec">${recipe}</div>${rateLine(sp, '×')}`,
+      `<div class="chips">${outs}</div>${bar(outT / d.buf[L], outT >= d.buf[L] ? 'warn' : '')}<small>${outT >= d.buf[L] ? 'full: waiting for trucks' : 'trucks collect'}</small>`)
+    + kvs(staffKv(b, d, L));
 }
 const PRIO_SHORT = { balanced: '⚖️ Balanced', construction: '🏗️ Build', supply: '🛒 Supply', collect: '📥 Collect' };
 function hubSec(b, d, L) {
@@ -180,7 +261,7 @@ function hubSec(b, d, L) {
   const busy = trucks.filter((t) => t.steps).length;
   return `<div class="sec"><h4>Storage · ${fmt(used)}/${d.cap[L]}</h4>${bar(used / d.cap[L], used / d.cap[L] > 0.9 ? 'warn' : '')}
       <div class="chips">${Object.entries(b.inv).filter(([, n]) => n >= 1).map(([g, n]) => chip(g, n)).join(' ') || '<span class="note">empty</span>'}</div>
-      ${hubFree(b) < 5 ? '<div class="warnbox">Hub is full</div>' : ''}</div>`
+      ${hubFree(b) < 5 ? '<div class="warnbox">Hub is full</div>' : ''}${kvs(staffKv(b, d, L))}</div>`
     + `<div class="sec span2"><h4>${TRUCK.names[L]}s ·${ti.n}/${ti.max} · ${busy} busy</h4>
       <div class="btnrow"><button class="btn" data-act="buytruck" ${ti.n >= ti.max ? 'disabled' : ''} title="Buy a ${TRUCK.names[L]}">🚚 +$${ti.cost}</button><button class="btn sec2 sell" data-act="selltruck" ${ti.n ? '' : 'disabled'} title="Sell a truck">Sell</button>
       <select class="btn sec2" data-chg="prio" title="Transport priority">${Object.keys(PRIORITIES).map((k) => `<option value="${k}" ${b.priority === k ? 'selected' : ''}>${PRIO_SHORT[k]}</option>`).join('')}</select></div></div>`;
@@ -196,7 +277,7 @@ function harborSec(b, d, L) {
     const inHubs = activeHubs().reduce((a, h) => a + (h.inv[e.g] || 0), 0);
     const target = Math.min(d.stock[L], Math.max(8, e.amt * 2));
     info = kvs(kv('🚢', `${fmt(b.inv[e.g] || 0)}/${target}`, 'Waiting at the quay'), kv('🏙️', fmt(inHubs), `${GOODS[e.g].name} in your hubs`),
-      kv('💰', `$${fmt(price(e.g) * e.amt)}/d`, 'Income at full rate'), kv('Σ', '$' + fmt(b.sold || 0), 'Earned so far'));
+      kv('💰', `$${fmt(price(e.g) * e.amt)}/d`, 'Income at full rate'), kv('Σ', '$' + fmt(b.sold || 0), 'Earned so far'), staffKv(b, d, L));
     const f = marketFactor(e.g);
     if (f < 0.9) info += `<p class="note">📉 ${GOODS[e.g].name} market saturated: price −${Math.round((1 - f) * 100)}%. Exporting a second good pays more; prices recover over a few days.</p>`;
   }

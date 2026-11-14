@@ -31,16 +31,39 @@ export function computeStats() {
     if (d.upkeep) t.upkeep += d.upkeep[b.level - 1];
   }
   for (const tr of S.trucks) { const h = S.buildings[tr.hub]; if (h) t.upkeep += TRUCK.upkeep[h.level - 1]; }
-  t.employment = t.jobs > 0 ? Math.min(1, t.pop / t.jobs) : 1;
-  t.unemployed = Math.max(0, t.pop - t.jobs);
+  t.workers = assignWorkers(t.pop);
+  t.employment = t.jobs > 0 ? t.workers / t.jobs : 1;
+  t.unemployed = t.pop - t.workers;
+  t.vacant = t.jobs - t.workers;
   // demand (-1..1 style numbers, >0 means growth wanted)
   t.demandR = (t.jobs + 8 - t.pop) / 20;
-  t.demandI = (t.pop + 6 - t.jobs * 0.85) / 20;
+  t.demandI = (t.pop + 6 - t.jobs) / 20; // companies move in only while there are free workers
   const stores = t.count.store || 0;
   t.demandC = (t.pop - stores * 28 + (stores === 0 && t.pop > 0 ? 20 : 0)) / 20;
   t.eco = C.eco ?? 100;
   C.stats = t;
   return t;
+}
+
+// Citizens fill jobs one company at a time: hubs and stores first (the city runs on them),
+// then the other companies oldest first. A company without workers stops; a half-staffed one runs at half speed.
+const JOB_RANK = { hub: 0, store: 1 };
+function assignWorkers(pop) {
+  const list = [];
+  for (const b of Object.values(S.buildings)) {
+    b.staff = 0;
+    const d = def(b);
+    if (b.built && d.workers && d.workers[b.level - 1] > 0) list.push(b);
+  }
+  list.sort((a, b) => (JOB_RANK[def(a).kind] ?? 2) - (JOB_RANK[def(b).kind] ?? 2) || a.id.slice(1) - b.id.slice(1));
+  let left = pop;
+  for (const b of list) { b.staff = Math.min(def(b).workers[b.level - 1], left); left -= b.staff; }
+  return pop - left;
+}
+/** Share of a building's jobs that are filled (1 for buildings without jobs). */
+export function staffFrac(b) {
+  const w = def(b).workers; const n = w ? w[b.level - 1] : 0;
+  return n > 0 ? (b.staff || 0) / n : 1;
 }
 
 // ---------- pollution & eco ----------
@@ -97,9 +120,10 @@ function tickSite(b, dt) {
   }
 }
 
-function efficiency(b) {
+/** Terrain bonus of a producer (1 = none). */
+export function terrainBonus(b) {
   const d = def(b), t = tileAt(b.q, b.r);
-  let e = C.stats ? C.stats.employment : 1;
+  let e = 1;
   if (d.bonus === 'fertile' && t.terrain === 'fertile') e *= 1.3;
   if (d.bonus === 'forest') {
     const n = neighbors(t).filter((x) => x.terrain === 'forest').length + (t.terrain === 'forest' ? 2 : 0);
@@ -107,10 +131,13 @@ function efficiency(b) {
   }
   return e;
 }
+/** Production speed multiplier: filled jobs × terrain bonus. */
+export const efficiency = (b) => staffFrac(b) * terrainBonus(b);
 
 function tickProducer(b, d, dt) {
   const L = b.level - 1, cap = d.buf[L];
   if ((b.inv[d.out] || 0) >= cap) { b.status = 'full'; return; }
+  if (!b.staff) { b.status = 'nostaff'; return; }
   b.status = 'ok';
   b.progress += d.rate[L] * efficiency(b) * dt / DAY;
   while (b.progress >= 1) {
@@ -125,6 +152,7 @@ function tickProcessor(b, d, dt) {
   const outTotal = Object.keys(d.recipe.out).reduce((a, g) => a + (b.inv[g] || 0), 0);
   if (!hasIn) { b.status = 'noinput'; return; }
   if (outTotal >= cap) { b.status = 'full'; return; }
+  if (!b.staff) { b.status = 'nostaff'; return; }
   b.status = 'ok';
   b.progress += d.rate[L] * efficiency(b) * dt / DAY;
   if (b.progress >= 1) {
@@ -144,7 +172,7 @@ function tickHouse(b, d, dt) {
       b.want[g] -= 1;
       let best = null;
       for (const s of storesInRange(b)) {
-        if (!s.built && !s.site) continue;
+        if (!s.staff) continue; // closed: no workers
         if ((s.inv[g] || 0) >= 1 && (!best || s.inv[g] > best.inv[g])) best = s;
       }
       if (best) { add(best.inv, g, -1); count(C.day.use, g); pay(GOODS[g].value * SALES_TAX); b.sat[g] = b.sat[g] * 0.75 + 0.25; }
@@ -176,6 +204,7 @@ function tickHarbor(b, d, dt) {
   const g = Object.keys(b.inv).find((x) => x !== e.g && b.inv[x] >= 1) || e.g;
   if (!g || !e.amt) { b.status = 'idle'; return; }
   if ((b.inv[g] || 0) < 1) { b.status = 'noinput'; return; }
+  if (!b.staff) { b.status = 'nostaff'; return; }
   b.status = 'ok';
   b.progress += e.amt * efficiency(b) * dt / DAY;
   while (b.progress >= 1 && (b.inv[g] || 0) >= 1) {
@@ -307,5 +336,6 @@ function checkGoals() {
   }
 }
 
+export { storesInRange };
 export function refreshDerived() { computeStats(); computePollution(); computeStats(); }
 export { add, pay, spend };

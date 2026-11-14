@@ -54,6 +54,9 @@ const expect = (ok, msg) => { if (!ok) fails.push(msg); };
   const t = S.tiles.find((x) => isCoastal(x) && !x.b && !x.road);
   const h = createBuilding('harbor', t.q, t.r, { built: true });
   h.exp = { g: 'furniture', amt: 25 }; h.inv = { furniture: 200 };
+  // the harbor is the newest company, so give the city enough citizens to staff it
+  const spare = S.tiles.filter((x) => !x.b && !x.road && x.terrain !== 'water' && x !== t).slice(0, 4);
+  for (const ht of spare) { const home = createBuilding('house', ht.q, ht.r, { built: true }); home.level = 3; home.residents = 24; home.happy = 90; }
   const f0 = marketFactor('furniture');
   for (let i = 0; i < 3 * DAY / TICK; i++) tick(TICK);
   const f1 = marketFactor('furniture');
@@ -62,6 +65,21 @@ const expect = (ok, msg) => { if (!ok) fails.push(msg); };
   h.exp.amt = 0;
   for (let i = 0; i < 5 * DAY / TICK; i++) tick(TICK);
   expect(marketFactor('furniture') > f1 + 0.1, `market should recover: ${f1} -> ${marketFactor('furniture')}`);
+}
+
+// companies need workers: with no citizens nothing is produced, staffing fills hubs and stores first
+{
+  newGame(5);
+  const free = S.tiles.filter((x) => !x.b && !x.road && x.terrain !== 'water');
+  const farm = createBuilding('farm_grain', free[0].q, free[0].r, { built: true });
+  const store = createBuilding('store', free[1].q, free[1].r, { built: true });
+  for (let i = 0; i < 2 * DAY / TICK; i++) tick(TICK);
+  expect(farm.status === 'nostaff' && !(farm.inv.grain > 0), `unstaffed farm produced: ${farm.status} ${JSON.stringify(farm.inv)}`);
+  const home = createBuilding('house', free[2].q, free[2].r, { built: true }); home.residents = 4; home.happy = 90;
+  computeStats();
+  const hub = Object.values(S.buildings).find((b) => b.type === 'hub');
+  expect(hub.staff === 2 && store.staff === 2 && farm.staff === 0, `staff order hub ${hub.staff} store ${store.staff} farm ${farm.staff}`);
+  expect(C.stats.workers === 4 && C.stats.vacant === 2, `workers ${C.stats.workers} vacant ${C.stats.vacant}`);
 }
 
 // an old save without market data still loads

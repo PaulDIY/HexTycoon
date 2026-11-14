@@ -4,7 +4,7 @@ export const TICK = 0.1; // simulation step (game seconds)
 export const MAP_RADIUS = 20;
 export const START_MONEY = 2500;
 export const ZONE_COST = 2;
-export const LEVEL_UNLOCK = [0, 40, 200]; // population needed for level 1/2/3
+export const LEVEL_UNLOCK = [0, 60, 300]; // population needed for level 1/2/3
 
 export const TERRAIN = {
   water: { name: "Water", colors: ["#4c93bb", "#5199c1", "#478cb3"] },
@@ -30,7 +30,7 @@ export const GOODS = {
 };
 
 // consumption per resident per day
-export const NEED_RATE = { food: 0.25, clothes: 0.12, furniture: 0.06 };
+export const NEED_RATE = { food: 0.16, clothes: 0.08, furniture: 0.04 };
 export const COMPANY_TAX = 0.4; // share of produced value
 export const SALES_TAX = 0.5; // share of sold value
 // Exports saturate the overseas market: price × 1 / (1 + volume / sat).
@@ -145,9 +145,9 @@ export const BUILDINGS = {
     zone: "res",
     icon: "🏠",
     names: ["Cottage", "Townhouse", "Eco Apartments"],
-    cap: [4, 10, 24],
+    cap: [6, 16, 36],
     needs: [["food"], ["food", "clothes"], ["food", "clothes", "furniture"]],
-    tax: [1.5, 2.2, 3.2],
+    tax: [1.0, 1.4, 2.1],
     mats: MATS_S,
     upCost: [0, 65, 500],
     poll: [0.1, 0.1, 0],
@@ -191,7 +191,7 @@ export const BUILDINGS = {
     zone: "agri",
     out: "cotton",
     icon: "☁️",
-    unlock: 40,
+    unlock: 60,
     bonus: "fertile",
     names: ["Cotton Field", "Cotton Farm", "Organic Cotton"],
     desc: "Grows cotton for textiles.",
@@ -222,7 +222,7 @@ export const BUILDINGS = {
     terrain: ["sand"],
     out: "clay",
     icon: "🟫",
-    unlock: 120,
+    unlock: 180,
     poll: [1.0, 0.8, 0.2],
     names: ["Clay Pit", "Clay Works", "Restored Clay Pit"],
     upCost: [0, 20, 75],
@@ -237,7 +237,7 @@ export const BUILDINGS = {
   }),
   cannery: processor({
     icon: "🥫",
-    unlock: 40,
+    unlock: 60,
     recipe: { in: { veg: 2 }, out: { food: 3 } },
     upCost: [0, 65, 190],
     names: ["Cannery", "Food Plant", "Zero-Waste Cannery"],
@@ -252,7 +252,7 @@ export const BUILDINGS = {
   }),
   brickworks: processor({
     icon: "🧱",
-    unlock: 120,
+    unlock: 180,
     recipe: { in: { clay: 2 }, out: { bricks: 1 } },
     upCost: [0, 25, 85],
     names: ["Brickworks", "Brick Factory", "Green Kiln"],
@@ -260,14 +260,14 @@ export const BUILDINGS = {
   }),
   textile: processor({
     icon: "👕",
-    unlock: 40,
+    unlock: 60,
     recipe: { in: { cotton: 2 }, out: { clothes: 1 } },
     names: ["Textile Shop", "Textile Mill", "Fair Fashion Mill"],
     desc: "Weaves cotton into clothes.",
   }),
   furniture: processor({
     icon: "🪑",
-    unlock: 200,
+    unlock: 300,
     recipe: { in: { planks: 2 }, out: { furniture: 1 } },
     names: ["Carpentry", "Furniture Factory", "Upcycling Workshop"],
     desc: "Builds furniture from planks.",
@@ -279,7 +279,7 @@ export const BUILDINGS = {
     icon: "📦",
     names: ["Storage Depot", "Logistics Hub", "Smart Eco Hub"],
     cap: [150, 400, 1000],
-    trucks: [4, 6, 9],
+    trucks: [6, 10, 14],
     truckCost: [120, 200, 300],
     workers: [2, 4, 6],
     cost: [300, 600, 1200],
@@ -331,8 +331,8 @@ export const ROAD = {
 
 export const TRUCK = {
   names: ["Van", "Truck", "E-Truck"],
-  cap: [8, 14, 20],
-  speed: [0.8, 1.0, 1.2],
+  cap: [10, 20, 30],
+  speed: [1.4, 1.75, 2.1],
   co2: [0.05, 0.03, 0],
   upkeep: [2, 3, 3],
 };
@@ -346,11 +346,11 @@ export const PRIORITIES = {
 
 export const UNLOCK_MESSAGES = [
   [
-    40,
+    60,
     "Level 2 upgrades, Paved Roads, Cannery, Cotton farms & Textile mills unlocked!",
   ],
-  [120, "Clay Pits and Brickworks unlocked!"],
-  [200, "Level 3 eco upgrades, Green Boulevards & Furniture workshops unlocked!"],
+  [180, "Clay Pits and Brickworks unlocked!"],
+  [300, "Level 3 eco upgrades, Green Boulevards & Furniture workshops unlocked!"],
 ];
 
 // Onboarding goals. check(s, stats) -> bool
@@ -365,7 +365,7 @@ export const GOALS = [
     reward: 200,
     check: (s, t) => t.zoned.forest > 0 && t.zoned.mine > 0,
   },
-  { text: "Reach 15 citizens", reward: 250, check: (s, t) => t.pop >= 15 },
+  { text: "Reach 25 citizens", reward: 250, check: (s, t) => t.pop >= 25 },
   {
     text: "Zone Commercial so citizens can shop",
     reward: 200,
@@ -381,7 +381,7 @@ export const GOALS = [
     reward: 150,
     check: (s, t) => t.trucks >= 3,
   },
-  { text: "Reach 40 citizens", reward: 400, check: (s, t) => t.pop >= 40 },
+  { text: "Reach 60 citizens", reward: 400, check: (s, t) => t.pop >= 60 },
   {
     text: "Upgrade any building to level 2",
     reward: 300,
@@ -393,11 +393,11 @@ export const GOALS = [
     reward: 400,
     check: (s, t) => t.count.hub >= 2,
   },
-  { text: "Reach 120 citizens", reward: 800, check: (s, t) => t.pop >= 120 },
+  { text: "Reach 180 citizens", reward: 800, check: (s, t) => t.pop >= 180 },
   {
-    text: "Reach 200 citizens with Eco score ≥ 60",
+    text: "Reach 300 citizens with Eco score ≥ 60",
     reward: 1200,
-    check: (s, t) => t.pop >= 200 && t.eco >= 60,
+    check: (s, t) => t.pop >= 300 && t.eco >= 60,
   },
   {
     text: "Upgrade a building to level 3",

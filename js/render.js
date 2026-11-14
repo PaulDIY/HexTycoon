@@ -1,7 +1,7 @@
 // Canvas renderer: affine ground pass (batched Path2D) + depth-sorted sprite stacks.
 import { S, C, tileAt, def, roadNeighbors } from './state.js';
 import { TERRAIN, ZONES, BUILDINGS } from './config.js';
-import { toWorld, hexPath, SIZE, DIRS, hash2, key, fromWorld } from './hex.js';
+import { toWorld, hexPath, SIZE, DIRS, hash2, key, fromWorld, hexDist } from './hex.js';
 import { Y_SCALE, H_SCALE, getSprite, resetBudget } from './stack.js';
 import { MODELS } from './models.js';
 import { isConnected } from './logistics.js';
@@ -144,7 +144,25 @@ function drawOverlays(m) {
   if (V.hover && !V.preview.length) hl(V.hover, 'rgba(255,255,255,0.8)', 2);
   if (V.selected) {
     const b = S.buildings[V.selected];
-    if (b) hl(tileAt(b.q, b.r), '#ffd84a', 3.5); else V.selected = null;
+    if (b) { supplyMarks(b, hl); hl(tileAt(b.q, b.r), '#ffd84a', 3.5); } else V.selected = null;
+  }
+}
+
+// Store selected: outline the houses it supplies (sky blue = it sells everything they need, amber = only some).
+// House selected: outline the stores it shops at (sky blue = open, red = closed: no workers).
+function supplyMarks(sel, hl) {
+  if (!sel.built || (sel.type !== 'store' && sel.type !== 'house')) return;
+  const mark = (b, col) => { const p = hl(tileAt(b.q, b.r), col, 3.5); ctx.globalAlpha = 0.4; ctx.fillStyle = col; ctx.fill(p); ctx.globalAlpha = 1; };
+  for (const b of Object.values(S.buildings)) {
+    if (!b.built || b === sel) continue;
+    if (sel.type === 'store' && b.type === 'house') {
+      if (hexDist(sel.q, sel.r, b.q, b.r) > BUILDINGS.store.range[sel.level - 1]) continue;
+      const sells = BUILDINGS.store.sells[sel.level - 1];
+      mark(b, BUILDINGS.house.needs[b.level - 1].every((g) => sells.includes(g)) ? '#2ec4ff' : '#ffb020');
+    } else if (sel.type === 'house' && b.type === 'store') {
+      if (hexDist(sel.q, sel.r, b.q, b.r) > BUILDINGS.store.range[b.level - 1]) continue;
+      mark(b, b.staff ? '#2ec4ff' : '#e64632');
+    }
   }
 }
 

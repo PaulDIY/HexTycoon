@@ -55,6 +55,7 @@ export function initUI() {
   $('btn-menu').addEventListener('click', showMenu);
   $('btn-goal').addEventListener('click', showGoals);
   $('hud-money').addEventListener('click', showFinance);
+  $('hud-pop').addEventListener('click', showJobs);
   $('goalbar').addEventListener('click', showGoals);
   initStats();
   $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
@@ -194,7 +195,6 @@ function select(t) {
     const d = def(b);
     if (b.type === 'store') V.range = { q: b.q, r: b.r, rad: d.range[b.level - 1], color: '#3d97df' };
     if (b.type === 'park') V.range = { q: b.q, r: b.r, rad: d.radius[b.level - 1], color: '#2f8f4e' };
-    if (b.type === 'house') V.range = { q: b.q, r: b.r, rad: 5, color: '#5dbb52' };
   }
   if (b || t) openInspector(); else closeInspector();
   UI.inspDirty = true;
@@ -211,7 +211,7 @@ export function updateUI(dt) {
     const net = S.ledger.lastIncome - S.ledger.lastExpense;
     const n = $('net'); n.textContent = (net >= 0 ? '+' : '') + fmt(net) + '/d'; n.className = net >= 0 ? 'pos' : 'neg';
     $('pop').textContent = fmt(st.pop);
-    $('jobs').textContent = `${fmt(st.jobs)} jobs`;
+    const j = $('jobs'); j.textContent = `👷${fmt(st.workers ?? 0)}/${fmt(st.jobs)}`; j.className = st.vacant > 0 ? 'neg' : '';
     $('eco').textContent = C.eco ?? 100;
     $('day').textContent = 'Day ' + (Math.floor(S.time / DAY) + 1);
     const bar = (id, v) => { $(id).style.height = Math.max(2, Math.min(22, 11 + v * 11)) + 'px'; $(id).style.opacity = v > 0 ? 1 : 0.35; };
@@ -284,7 +284,7 @@ export const HELP = `
 <li><b>Logistics</b>: trucks collect goods from producers, supply factories and stores, and deliver straight from producer to consumer when they can. Buy more trucks and set priorities on a hub.</li>
 <li><b>Citizens</b> buy food (later clothes and furniture) at stores within walking range. Happy citizens pay more taxes. Companies pay taxes on what they produce.</li>
 <li><b>Eco score</b>: industry and trucks pollute. Forests and parks absorb it. Level 3 upgrades are much cleaner.</li>
-<li><b>Upgrades</b>: select anything and upgrade it up to level 3. Level 2 unlocks at 40 citizens, level 3 at 200.</li>
+<li><b>Upgrades</b>: select anything and upgrade it up to level 3. Level 2 unlocks at 60 citizens, level 3 at 300.</li>
 </ul>
 <p><b>Controls</b>: one finger pans (Select tool) or paints (zone/road/remove tools). Two fingers move, pinch-zoom and rotate. On desktop: right-drag pans, wheel zooms, Q/E rotates, Space pauses.</p>
 <button class="btn" data-close>Let's build</button>`;
@@ -318,9 +318,24 @@ function showFinance() {
     <div class="row"><span>Income yesterday</span><span class="v">+$${fmt(S.ledger.lastIncome)}</span></div>
     <div class="row"><span>Expenses yesterday</span><span class="v">−$${fmt(S.ledger.lastExpense)}</span></div>
     <div class="row"><span>Upkeep (roads, hubs, trucks, parks)</span><span class="v">$${st.upkeep.toFixed(1)}/day</span></div>
-    <div class="row"><span>Citizens / jobs</span><span class="v">${st.pop} / ${st.jobs}</span></div>
-    <div class="row"><span>Employment</span><span class="v">${Math.round(st.employment * 100)}%</span></div>
     <p class="note">Citizens pay tax by happiness. Companies pay ${Math.round(0.4 * 100)}% of the value they produce, stores ${Math.round(0.5 * 100)}% of sales.</p>
+    <button class="btn" data-close>Close</button>`);
+}
+// citizens vs jobs: who works where, which companies are short of workers
+function showJobs() {
+  const st = computeStats();
+  const short = Object.values(S.buildings).filter((b) => b.built && def(b).workers && (b.staff || 0) < def(b).workers[b.level - 1]);
+  const list = short.slice(0, 10).map((b) => { const d = def(b), n = d.workers[b.level - 1];
+    return `<div class="row"><span>${d.icon} ${d.names[b.level - 1]}</span><span class="v ${b.staff ? '' : 'neg'}">👷 ${b.staff || 0}/${n}${b.staff ? '' : ' · stopped'}</span></div>`; }).join('');
+  showModal(`<h1>👥 Citizens &amp; jobs</h1>
+    <div class="row"><span>Citizens</span><span class="v">${fmt(st.pop)}</span></div>
+    <div class="row"><span>Jobs in companies, stores and hubs</span><span class="v">${fmt(st.jobs)}</span></div>
+    <div class="row"><span>Working</span><span class="v">${fmt(st.workers)}</span></div>
+    <div class="row"><span>Unemployed</span><span class="v ${st.unemployed ? 'neg' : ''}">${fmt(st.unemployed)}</span></div>
+    <div class="row"><span>Open jobs</span><span class="v ${st.vacant ? 'neg' : ''}">${fmt(st.vacant)}</span></div>
+    ${short.length ? `<h3>Short of workers</h3>${list}${short.length > 10 ? `<p class="note">…and ${short.length - 10} more</p>` : ''}` : ''}
+    <p class="note">Every citizen takes one job. Hubs and stores are staffed first, then companies from oldest to newest. A company without workers stops, a half-staffed one runs at half speed.</p>
+    <p class="note">More jobs than citizens → houses grow (R demand). More citizens than jobs → companies move in (I demand), and unemployment lowers happiness.</p>
     <button class="btn" data-close>Close</button>`);
 }
 document.addEventListener('click', (e) => { if (e.target.closest && e.target.closest('[data-close]')) closeModal(); });

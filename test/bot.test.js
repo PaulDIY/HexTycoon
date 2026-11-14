@@ -6,7 +6,7 @@
 import { newGame, S, C, roadNeighbors, tileAt } from '../js/state.js';
 import { tick, computeStats, isUnlocked, levelUnlocked } from '../js/sim.js';
 import * as A from '../js/actions.js';
-import { TICK, DAY, BUILDINGS, ZONES, NEED_RATE } from '../js/config.js';
+import { TICK, DAY, BUILDINGS, ZONES, NEED_RATE, GOODS } from '../js/config.js';
 import { hexDist, key } from '../js/hex.js';
 import { activeHubs } from '../js/logistics.js';
 
@@ -157,9 +157,16 @@ function demandStep() {
     for (const type of opts) { const t = pickTile(type, radius); if (t && A.zoneTile(t, zoneOf(type), type).ok) { done = true; acted++; break; } }
     if (!done) { if (radius < 18) { radius++; roads(radius); } break; }
   }
-  // 4. prune: demolish one idle producer of a good we make far too much of (frees workers)
+  // 3b. jobs: when citizens lack work (industry demand) and no shortage is left, add the least-oversupplied maker
+  const freeInd = S.tiles.some((t) => t.zone && !t.b && t.spec && BUILDINGS[t.spec] && ['producer', 'processor'].includes(BUILDINGS[t.spec].kind));
+  if (st.demandI > 0.3 && !freeInd) {
+    const { sup, dem } = balance();
+    const goods = Object.keys(GOODS).filter((g) => makers(g).length).sort((a, b) => (sup[a] || 0) / (dem[a] || 0.5) - (sup[b] || 0) / (dem[b] || 0.5));
+    outer: for (const g of goods) for (const type of makers(g)) { const t = pickTile(type, radius); if (t && A.zoneTile(t, zoneOf(type), type).ok) { acted++; break outer; } }
+  }
+  // 4. prune: demolish one idle producer of a good we make far too much of (frees workers for other companies)
   const { sup, dem } = balance();
-  for (const b of all()) {
+  if (st.vacant > 0) for (const b of all()) {
     const d = BUILDINGS[b.type], g = d.out || (d.recipe && Object.keys(d.recipe.out)[0]);
     if (!g || !b.built || b.status !== 'full' || d.kind === 'house') continue;
     if ((sup[g] || 0) > 1.8 * (dem[g] || 0) + 4 && hubStock(g) > 100) { const t = tileAt(b.q, b.r); A.demolish(t); A.demolish(t); break; }
@@ -169,7 +176,7 @@ function demandStep() {
 
 roads(radius);
 if (MODE === 'fixed') zoneFixed(radius);
-const MILESTONES = [40, 120, 200, 500], reached = {};
+const MILESTONES = [60, 180, 300, 500], reached = {};
 let peakCash = 0, peakDay = 0;
 for (let d = 0; d < days; d++) {
   for (let i = 0; i < DAY / TICK; i++) tick(TICK);
@@ -237,3 +244,5 @@ console.log('avg happy', (houses.reduce((a, h) => a + h.happy, 0) / (houses.leng
   Object.entries(sat).map(([g, a]) => `${g} ${(a.reduce((x, y) => x + y, 0) / a.length).toFixed(2)}`).join(' '));
 console.log(JSON.stringify(st.count));
 console.log('hubs', all().filter((b) => b.type === 'hub').map((h) => JSON.stringify(h.inv)).join(' | '));
+// SAVE=path writes the final city as a save file (paste into localStorage 'hexaverde-save-v1' to inspect it in the game)
+if (process.env.SAVE) { const { serialize } = await import('../js/state.js'); (await import('node:fs')).writeFileSync(process.env.SAVE, serialize()); }
